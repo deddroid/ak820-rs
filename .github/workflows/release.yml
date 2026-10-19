@@ -10,6 +10,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Tag name in archive names; "dev" for test builds (PR refs contain slashes).
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'dev' }}
 
 jobs:
   windows:
@@ -25,7 +27,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $dir = "ak820-${{ github.ref_name }}-windows-x86_64"
+          $dir = "ak820-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory $dir | Out-Null
           Copy-Item target/release/ak820-gui.exe, target/release/ak820.exe, README.md, README.it.md $dir
           Compress-Archive -Path $dir -DestinationPath "$dir.zip"
@@ -33,6 +35,7 @@ jobs:
         with:
           name: windows
           path: ak820-*.zip
+          if-no-files-found: error
 
   linux:
     # Oldest supported runner, so the binaries work on older glibc versions too.
@@ -49,7 +52,7 @@ jobs:
       - run: cargo build --release --locked
       - name: Package
         run: |
-          dir="ak820-${{ github.ref_name }}-linux-x86_64"
+          dir="ak820-$VERSION-linux-x86_64"
           mkdir -p "$dir/assets" "$dir/packaging/linux" "$dir/udev"
           cp target/release/ak820 target/release/ak820-gui install.sh README.md README.it.md "$dir/"
           cp assets/icon.png assets/icon-*.png "$dir/assets/"
@@ -60,6 +63,7 @@ jobs:
         with:
           name: linux
           path: ak820-*.tar.gz
+          if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

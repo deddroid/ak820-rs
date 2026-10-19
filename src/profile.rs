@@ -12,7 +12,7 @@ use crate::keys;
 use crate::lighting::Lighting;
 use crate::macros::{self, MacroDef};
 use crate::protocol::{self, SystemSettings};
-use crate::screen::Fit;
+use crate::screen::{Crop, Fit};
 use crate::{Error, Result, Rgb};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -198,13 +198,16 @@ impl Keymap {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Screen {
     /// PNG/JPEG/BMP/WebP or animated GIF; relative paths are relative to the profile file.
     pub image: PathBuf,
     #[serde(default)]
     pub fit: Fit,
+    /// Visible part of the image with `fit = "crop"`.
+    #[serde(default, skip_serializing_if = "Crop::is_default")]
+    pub crop: Crop,
 }
 
 impl Profile {
@@ -270,6 +273,123 @@ impl Profile {
     }
 }
 
+impl Profile {
+    /// The profile as a complete configuration to switch to: keys and macros
+    /// are always rewritten (no remaps = factory layout) and the clock is synced.
+    pub fn as_full_switch(&self) -> Profile {
+        let mut p = self.clone();
+        p.sync_clock = Some(true);
+        if p.keymap.is_none() {
+            p.keymap = Some(Keymap::default());
+        }
+        p
+    }
+}
+
+// ---- named profiles --------------------------------------------------------------------
+
+/// Folder holding the named profiles (`NAME.toml` plus a copy of each screen image).
+pub fn profiles_dir() -> PathBuf {
+    if let Some(p) = std::env::var_os("AK820_PROFILES") {
+        return PathBuf::from(p);
+    }
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("ak820")
+        .join("profiles")
+}
+
+fn check_name(name: &str) -> Result<()> {
+    let bad = name.trim().is_empty()
+        || name != name.trim()
+        || name.starts_with('.')
+        || name.chars().any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control());
+    if bad {
+        return Err(Error::Invalid(format!("'{name}' is not a valid profile name")));
+    }
+    Ok(())
+}
+
+/// Names of the saved profiles, sorted.
+pub fn list_profiles() -> Vec<String> {
+    let Ok(dir) = std::fs::read_dir(profiles_dir()) else { return Vec::new() };
+    let mut names: Vec<String> = dir
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "toml"))
+        .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
+fn image_copies(name: &str) -> Vec<PathBuf> {
+    let dir = profiles_dir();
+    ["png", "jpg", "jpeg", "gif", "bmp", "webp"]
+        .iter()
+        .map(|e| dir.join(format!("{name}.{e}")))
+        .filter(|p| p.exists())
+        .collect()
+}
+
+/// Save `p` as the named profile. The screen image is copied next to it, so
+/// the profile keeps working if the original file moves.
+pub fn save_named(name: &str, p: &Profile) -> Result<()> {
+    check_name(name)?;
+    let dir = profiles_dir();
+    std::fs::create_dir_all(&dir)?;
+    let mut p = p.clone();
+    p.sync_clock = None;
+    if let Some(screen) = p.screen.as_mut() {
+        let ext = screen.image.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_else(|| "png".into());
+        let file = format!("{name}.{ext}");
+        let dest = dir.join(&file);
+        let same = std::fs::canonicalize(&screen.image).ok() == std::fs::canonicalize(&dest).ok();
+        if !same {
+            for old in image_copies(name) {
+                let _ = std::fs::remove_file(old);
+            }
+            std::fs::copy(&screen.image, &dest)
+                .map_err(|e| Error::Invalid(format!("cannot copy {}: {e}", screen.image.display())))?;
+        }
+        screen.image = PathBuf::from(file);
+    } else {
+        for old in image_copies(name) {
+            let _ = std::fs::remove_file(old);
+        }
+    }
+    p.save(&dir.join(format!("{name}.toml")))
+}
+
+pub fn load_named(name: &str) -> Result<Profile> {
+    check_name(name)?;
+    let path = profiles_dir().join(format!("{name}.toml"));
+    if !path.exists() {
+        return Err(Error::Invalid(format!("no profile named '{name}'")));
+    }
+    Profile::load(&path)
+}
+
+pub fn delete_named(name: &str) -> Result<()> {
+    check_name(name)?;
+    let dir = profiles_dir();
+    std::fs::remove_file(dir.join(format!("{name}.toml")))?;
+    for img in image_copies(name) {
+        let _ = std::fs::remove_file(img);
+    }
+    Ok(())
+}
+
+pub fn rename_named(old: &str, new: &str) -> Result<()> {
+    check_name(new)?;
+    if list_profiles().iter().any(|n| n == new) {
+        return Err(Error::Invalid(format!("a profile named '{new}' already exists")));
+    }
+    let p = load_named(old)?;
+    save_named(new, &p)?;
+    delete_named(old)
+}
+
 /// Where the last applied configuration is remembered.
 pub fn state_path() -> PathBuf {
     if let Some(p) = std::env::var_os("AK820_STATE") {
@@ -322,6 +442,38 @@ mod tests {
         assert_eq!(r.len(), 81);
         assert!(r.contains(&(39, Rgb(255, 0, 0))));
         assert!(r.contains(&(1, Rgb(0, 0, 32))));
+    }
+
+    #[test]
+    fn named_profiles() {
+        let dir = std::env::temp_dir().join(format!("ak820-test-{}", std::process::id()));
+        std::env::set_var("AK820_PROFILES", &dir);
+        let img = dir.join("src.png");
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(&img).unwrap();
+        let p = Profile {
+            lighting: Some(Lighting::factory()),
+            screen: Some(Screen { image: img.clone(), fit: Fit::Crop, crop: Crop { zoom: 2.0, x: 0.3, y: 0.5 } }),
+            ..Profile::default()
+        };
+        save_named("Gaming", &p).unwrap();
+        assert!(dir.join("Gaming.png").exists());
+        let back = load_named("Gaming").unwrap();
+        assert_eq!(back.screen.as_ref().unwrap().image, dir.join("Gaming.png"));
+        assert_eq!(back.screen.as_ref().unwrap().crop.zoom, 2.0);
+        // saving it again from its own copy keeps the image
+        save_named("Gaming", &back).unwrap();
+        assert!(dir.join("Gaming.png").exists());
+        rename_named("Gaming", "Work").unwrap();
+        assert_eq!(list_profiles(), vec!["Work".to_string()]);
+        assert!(dir.join("Work.png").exists() && !dir.join("Gaming.png").exists());
+        assert!(save_named("../x", &p).is_err());
+        let full = back.as_full_switch();
+        assert_eq!(full.keymap, Some(Keymap::default()));
+        assert_eq!(full.sync_clock, Some(true));
+        delete_named("Work").unwrap();
+        assert!(list_profiles().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

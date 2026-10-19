@@ -36,6 +36,10 @@ condividono la stessa configurazione salvata.
 |---|---|
 | ![Luci](docs/screenshots/1-lighting.png) | ![Display](docs/screenshots/5-screen.png) |
 
+| Profili | Sistema |
+|---|---|
+| ![Profili](docs/screenshots/7-profiles.png) | ![Sistema](docs/screenshots/6-system.png) |
+
 ## Installazione
 
 Per compilare dai sorgenti serve [Rust](https://rustup.rs). Su Linux, il modo più semplice:
@@ -85,15 +89,34 @@ ak820-gui
 
 Schede: **Luci** (effetti e parametri), **Colori tasti** (dipingi i tasti sulla tastiera
 disegnata, clic destro per cancellare), **Tasti** (clicca un tasto e scegli cosa deve fare,
-layer normale e Fn), **Macro** (editor di sequenze), **Display** (anteprima animata con i
-colori reali del display, trascina un'immagine o una GIF), **Sistema** (orologio, sospensione,
-Fn, antirimbalzo, batteria) e **Profili** (importa/esporta/reinvia, ripristino di fabbrica).
-La barra in basso mostra lo stato del collegamento e il registro delle operazioni.
+layer normale e Fn), **Macro** (editor di sequenze), **Display** (anteprima animata; in modalità
+ritaglia trascina l'immagine per scegliere la parte visibile e usa la rotella per lo zoom;
+trascina un'immagine o una GIF nella finestra), **Sistema** (impostazioni dell'app, orologio,
+sospensione, Fn, antirimbalzo, batteria) e **Profili** (profili salvati, importa/esporta/reinvia,
+ripristino di fabbrica). La barra in basso mostra lo stato del collegamento e il registro delle
+operazioni.
 
-L'app è in italiano o in inglese: segue la lingua del sistema (`LANG`/`LC_ALL`/`LC_MESSAGES` su
-Linux, la lingua dell'utente su Windows) e si cambia dal selettore in fondo alla barra laterale.
-La scelta è salvata in `gui.toml`, nella stessa cartella di configurazione del file di stato;
-`AK820_GUI_LANG=en|it` forza una lingua per un singolo avvio.
+I **profili salvati** contengono tutta la configurazione: luci o colori per tasto, rimappature,
+macro, immagine del display (copiata accanto al profilo) e impostazioni. **Applica** porta la
+tastiera a quel profilo con un clic, anche dal menu della tray.
+
+**Sistema → Applicazione**:
+
+- **Lingua**: italiano o inglese. Di default segue la lingua del sistema
+  (`LANG`/`LC_ALL`/`LC_MESSAGES` su Linux, la lingua dell'utente su Windows);
+  `AK820_GUI_LANG=en|it` la forza per un singolo avvio.
+- **Avvia all'accensione del PC**: all'accesso l'app parte ridotta nella tray (autostart XDG su
+  Linux, chiave `Run` del registro su Windows).
+- **Riduci nella tray** alla chiusura della finestra: un clic sull'icona la riapre, il suo menu
+  cambia profilo o chiude l'app. Su GNOME serve l'estensione AppIndicator.
+- **Sincronizza l'orologio del display** all'avvio dell'app.
+
+Le preferenze sono salvate in `gui.toml`, nella stessa cartella del file di stato. L'app gira in
+una sola copia: se la riapri, si mostra la finestra già aperta.
+
+Su Linux la finestra si apre tramite XWayland quando è disponibile, perché winit (la libreria
+delle finestre) non supporta il drag & drop di file su Wayland nativo; `AK820_WAYLAND=1` mantiene
+Wayland nativo (in quel caso usa "Scegli immagine" o incolla un file copiato con Ctrl+V).
 
 ## Riga di comando
 
@@ -111,6 +134,7 @@ ak820 demo --seconds 10                      # animazione live (non salvata)
 
 ak820 clock                                  # sincronizza l'orologio
 ak820 screen gatto.gif --fit crop            # immagine/GIF sul display
+ak820 screen foto.jpg --zoom 2 --x 0.3 --y 0.4    # ritaglio: zoom 2×, centrato al 30% / 40%
 
 ak820 system --sleep 30m --fn-mode hold --response 2 --block-win off
 
@@ -123,7 +147,11 @@ ak820 remap pgdn=default                     # torna al tasto originale
 ak820 remap --reset                          # layer normale di fabbrica
 ak820 remap                                  # mostra le rimappature
 
-ak820 apply examples/profile.toml            # applica un profilo completo
+ak820 profile save gaming                    # salva la configurazione attuale come "gaming"
+ak820 profile apply gaming                   # porta la tastiera a quel profilo
+ak820 profile list                           # profili salvati (anche: profile rm NOME)
+
+ak820 apply examples/profile.toml            # applica un file profilo
 ak820 export mio-profilo.toml                # salva la configurazione corrente
 ak820 resend                                 # reinvia tutto (es. dopo un reset)
 ak820 reset --yes                            # impostazioni di fabbrica

@@ -35,6 +35,10 @@ they share the same saved configuration.
 |---|---|
 | ![Lighting](docs/screenshots/1-lighting.png) | ![Screen](docs/screenshots/5-screen.png) |
 
+| Profiles | System |
+|---|---|
+| ![Profiles](docs/screenshots/7-profiles.png) | ![System](docs/screenshots/6-system.png) |
+
 ## Installation
 
 To build from source you need [Rust](https://rustup.rs). On Linux, the easiest way:
@@ -84,15 +88,32 @@ ak820-gui
 
 Tabs: **Lighting** (lighting effects and parameters), **Key colors** (paint keys on the drawn
 keyboard, right-click to clear), **Keys** (click a key and choose what it does, normal and Fn
-layer), **Macros** (sequence editor), **Screen** (animated preview with the screen's real
-colors; drop an image or GIF), **System** (clock, sleep, Fn, debounce, battery) and
-**Profiles** (import/export/resend, factory reset). The bottom bar shows the connection status
-and the operation log.
+layer), **Macros** (sequence editor), **Screen** (animated preview; in crop mode drag the image
+to choose the visible part and scroll to zoom; drop an image or GIF), **System** (app settings,
+clock, sleep, Fn, debounce, battery) and **Profiles** (saved profiles, import/export/resend,
+factory reset). The bottom bar shows the connection status and the operation log.
 
-The app is in English or Italian: it follows the system language (`LANG`/`LC_ALL`/`LC_MESSAGES`
-on Linux, the user locale on Windows) and can be switched from the selector at the bottom of the
-sidebar. The choice is saved in `gui.toml`, in the same config folder as the state file;
-`AK820_GUI_LANG=en|it` forces a language for one run.
+**Saved profiles** hold the whole configuration: lighting or per-key colors, remaps, macros,
+screen image (copied next to the profile) and system settings. **Apply** switches the keyboard
+to a profile in one click, also from the tray menu.
+
+**System → Application**:
+
+- **Language**: English or Italian. By default it follows the system language
+  (`LANG`/`LC_ALL`/`LC_MESSAGES` on Linux, the user locale on Windows);
+  `AK820_GUI_LANG=en|it` forces one for a single run.
+- **Start with the computer**: starts the app in the tray at login (XDG autostart on Linux,
+  the `Run` registry key on Windows).
+- **Keep running in the tray** when the window is closed: click the icon to reopen it, or use
+  its menu to switch profile or quit. On GNOME the tray needs the AppIndicator extension.
+- **Sync the screen clock** when the app starts.
+
+These preferences are saved in `gui.toml`, in the same config folder as the state file. Only
+one copy of the app runs at a time: launching it again shows the existing window.
+
+On Linux the window opens through XWayland when available, because winit (the windowing
+library) has no file drag & drop on native Wayland; `AK820_WAYLAND=1` keeps native Wayland
+(then use the file picker or paste a copied file with Ctrl+V).
 
 ## Command line
 
@@ -110,6 +131,7 @@ ak820 demo --seconds 10                      # live animation (not saved)
 
 ak820 clock                                  # sync the clock
 ak820 screen cat.gif --fit crop              # image/GIF on the screen
+ak820 screen photo.jpg --zoom 2 --x 0.3 --y 0.4   # crop: zoom 2×, centered at 30% / 40%
 
 ak820 system --sleep 30m --fn-mode hold --response 2 --block-win off
 
@@ -122,7 +144,11 @@ ak820 remap pgdn=default                     # back to the original key
 ak820 remap --reset                          # factory normal layer
 ak820 remap                                  # show remaps
 
-ak820 apply examples/profile.toml            # apply a full profile
+ak820 profile save gaming                    # save the current configuration as "gaming"
+ak820 profile apply gaming                   # switch the keyboard to it
+ak820 profile list                           # saved profiles (also: profile rm NAME)
+
+ak820 apply examples/profile.toml            # apply a profile file
 ak820 export my-profile.toml                 # save the current configuration
 ak820 resend                                 # send everything again (e.g. after a reset)
 ak820 reset --yes                            # factory settings

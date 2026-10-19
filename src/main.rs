@@ -312,6 +312,7 @@ fn run(cli: Cli) -> Result<()> {
                 mode,
                 color: color.unwrap_or(Rgb(255, 255, 255)),
                 rainbow: rainbow || (color.is_none() && mode != Mode::Static),
+                // (colourful and spectrum ignore color and rainbow)
                 brightness,
                 speed,
                 direction,

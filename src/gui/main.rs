@@ -667,17 +667,22 @@ impl App {
         card(ui, t("Parameters", "Parametri"), |ui| {
             ui.add_enabled_ui(!off, |ui| {
                 egui::Grid::new("light-params").num_columns(2).spacing([24.0, 12.0]).show(ui, |ui| {
+                    let caps = self.light.mode.caps();
                     ui.label(t("Color", "Colore"));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled_ui(!self.light.rainbow, |ui| color_button(ui, &mut self.light.color));
-                        ui.checkbox(&mut self.light.rainbow, t("Rainbow", "Arcobaleno"));
-                    });
+                    if caps.color {
+                        ui.horizontal(|ui| {
+                            ui.add_enabled_ui(!self.light.rainbow, |ui| color_button(ui, &mut self.light.color));
+                            ui.checkbox(&mut self.light.rainbow, t("Rainbow", "Arcobaleno"));
+                        });
+                    } else {
+                        ui.label(RichText::new(t("this effect always uses every color", "questo effetto usa sempre tutti i colori")).weak());
+                    }
                     ui.end_row();
                     ui.label(t("Brightness", "Luminosità"));
                     ui.add(Slider::new(&mut self.light.brightness, 0..=5));
                     ui.end_row();
                     ui.label(t("Speed", "Velocità"));
-                    ui.add_enabled(self.light.mode != Mode::Static, Slider::new(&mut self.light.speed, 0..=5));
+                    ui.add_enabled(caps.speed, Slider::new(&mut self.light.speed, 0..=5));
                     ui.end_row();
                     ui.label(t("Direction", "Direzione"));
                     match self.light.mode.direction_axis() {
@@ -704,12 +709,6 @@ impl App {
                 let mut s = self.state.clone();
                 s.lighting = Some(l.clone());
                 self.run(&format!("{}: {}", t("Lighting", "Luci"), mode_label(l.mode)), Op::Lighting(l), Some(s));
-            }
-            if ui.add_enabled(!self.busy && self.connected(), Button::new(t("Lights off", "Spegni luci"))).clicked() {
-                let l = Lighting::new(Mode::Off);
-                let mut s = self.state.clone();
-                s.lighting = Some(l.clone());
-                self.run(t("Lights off", "Luci spente"), Op::Lighting(l), Some(s));
             }
         });
     }

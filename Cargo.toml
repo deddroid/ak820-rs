@@ -1,0 +1,29 @@
+[package]
+name = "ak820"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform (Linux/Windows) configuration tool for the AJAZZ AK820 Pro keyboard: lighting, per-key colors, key remapping, macros, TFT screen and clock"
+readme = "README.md"
+
+[lib]
+name = "ak820"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ak820"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4.5", features = ["derive"] }
+dirs = "5"
+hidapi = "2.6"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+toml = "0.8"
+
+[profile.release]
+lto = true
+strip = true

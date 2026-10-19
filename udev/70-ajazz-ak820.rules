@@ -1,0 +1,6 @@
+# AJAZZ AK820 Pro: let the logged-in user (and the "input" group) open the HID interfaces.
+# Install: sudo cp udev/70-ajazz-ak820.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
+# 0c45:8009 / 0c45:800a USB cable, 0c45:fdfd 2.4 GHz receiver
+KERNEL=="hidraw*", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="8009", MODE="0660", GROUP="input", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="800a", MODE="0660", GROUP="input", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="fdfd", MODE="0660", GROUP="input", TAG+="uaccess"

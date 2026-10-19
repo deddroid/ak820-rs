@@ -1,0 +1,62 @@
+# Example AK820 Pro profile: `ak820 apply examples/profile.toml`
+# Every section is optional: only the sections present are sent to the keyboard.
+
+# Set the screen clock to the computer time.
+sync_clock = true
+
+# Built-in effect. Modes: off static single-on single-off glittering falling
+# colourful breath spectrum outward scrolling rolling rotating explode launch
+# ripples flowing pulsating tilt shuttle custom
+[lighting]
+mode = "rolling"
+color = "00aaff"
+rainbow = true
+brightness = 5      # 0..5
+speed = 3           # 0..5
+direction = "left"  # left | right | up | down
+
+# Static per-key colors. Used when lighting is absent or mode = "custom".
+[key_colors]
+base = "101030"
+brightness = 4
+[key_colors.keys]
+w = "ff0000"
+a = "ff0000"
+s = "ff0000"
+d = "ff0000"
+esc = "ffaa00"
+
+[system]
+sleep = "5m"        # never | 1m | 5m | 30m (battery only)
+fn_mode = "hold"    # hold | toggle
+response = 2        # debounce 1 (fast) .. 5 (slow)
+block_win = false
+block_alt_f4 = false
+block_alt_tab = false
+
+# Remapping. Targets: a key ("b"), a shortcut ("ctrl+shift+t"), media ("play",
+# "vol+", "mute"...), "mouse:left", "wheel:up", "multi:a+s", "text:Hello",
+# "macro:NAME" or "default". Run `ak820 keys` for every name.
+[keymap.normal]
+pgup = "home"
+pgdn = "end"
+delete = "macro:copy-paste"
+
+[keymap.fn]
+pgup = "vol+"
+pgdn = "vol-"
+left = "prev"
+right = "next"
+down = "play"
+s = "text:Best regards,\n"
+
+# Macros referenced as "macro:NAME". Steps: text:..., tap:ctrl+c, down:KEY,
+# up:KEY, delay:MS, click:left, mouse-down:left, mouse-up:left.
+# mode: once | repeat (uses count) | toggle | hold | step
+[macros.copy-paste]
+steps = ["tap:ctrl+c", "delay:50", "tap:ctrl+v"]
+mode = "once"
+
+# [screen]
+# image = "my-animation.gif"   # relative to this file
+# fit = "crop"                 # crop | pad | stretch

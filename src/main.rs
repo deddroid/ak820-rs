@@ -11,7 +11,7 @@ use ak820::lighting::{Direction, Lighting, Mode};
 use ak820::macros::{MacroDef, MacroMode};
 use ak820::profile::{self, FnMode, KeyColors, Keymap, Profile, Screen, SleepTime, System};
 use ak820::protocol;
-use ak820::screen::{self, Fit};
+use ak820::screen::{self, Crop, Fit};
 use ak820::{actions, keys, Keyboard, Rgb};
 
 #[derive(Parser)]
@@ -66,6 +66,15 @@ enum Command {
         file: PathBuf,
         #[arg(long, value_enum, default_value_t = Fit::Crop)]
         fit: Fit,
+        /// Crop zoom, 1 (whole short side) .. 8
+        #[arg(long, default_value_t = 1.0)]
+        zoom: f32,
+        /// Horizontal center of the crop, 0 (left) .. 1 (right)
+        #[arg(long, default_value_t = 0.5)]
+        x: f32,
+        /// Vertical center of the crop, 0 (top) .. 1 (bottom)
+        #[arg(long, default_value_t = 0.5)]
+        y: f32,
     },
     /// Sleep timer, Fn mode, debounce, key blocking (unset options keep their last value)
     System {
@@ -106,6 +115,11 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Named profiles: save the current configuration and switch between them
+    Profile {
+        #[command(subcommand)]
+        action: ProfileAction,
+    },
     /// Write the remembered configuration as a profile
     Export { file: Option<PathBuf> },
     /// Send the remembered configuration again
@@ -124,6 +138,18 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         seconds: u64,
     },
+}
+
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// List the saved profiles
+    List,
+    /// Save the current configuration as NAME (overwrites it)
+    Save { name: String },
+    /// Send profile NAME to the keyboard: lighting, colors, keys, macros, screen, settings
+    Apply { name: String },
+    /// Delete profile NAME
+    Rm { name: String },
 }
 
 #[derive(Subcommand)]
@@ -341,12 +367,13 @@ fn run(cli: Cli) -> Result<()> {
                 t.year, t.month, t.day, t.hour, t.minute, t.second
             );
         }
-        Command::Screen { file, fit } => {
-            let frames = actions::load_frames(&file, fit)?;
+        Command::Screen { file, fit, zoom, x, y } => {
+            let crop = Crop { zoom, x, y };
+            let frames = actions::load_frames(&file, fit, crop)?;
             let kb = open()?;
             upload_screen(&kb, &frames)?;
             let image = std::fs::canonicalize(&file).unwrap_or(file);
-            state.screen = Some(Screen { image, fit });
+            state.screen = Some(Screen { image, fit, crop });
             save_state(&state)?;
             println!("Screen updated.");
         }
@@ -441,6 +468,34 @@ fn run(cli: Cli) -> Result<()> {
             save_state(&state)?;
             println!("Profile applied.");
         }
+        Command::Profile { action } => match action {
+            ProfileAction::List => {
+                let names = profile::list_profiles();
+                if names.is_empty() {
+                    println!("No saved profiles. Create one with `ak820 profile save NAME`.");
+                }
+                for n in names {
+                    println!("{n}");
+                }
+                eprintln!("({})", profile::profiles_dir().display());
+            }
+            ProfileAction::Save { name } => {
+                profile::save_named(&name, &state)?;
+                println!("Profile '{name}' saved.");
+            }
+            ProfileAction::Apply { name } => {
+                let p = profile::load_named(&name)?;
+                p.validate()?;
+                let kb = open()?;
+                apply(&kb, &p.as_full_switch())?;
+                save_state(&p)?;
+                println!("Profile '{name}' applied.");
+            }
+            ProfileAction::Rm { name } => {
+                profile::delete_named(&name)?;
+                println!("Profile '{name}' deleted.");
+            }
+        },
         Command::Export { file } => {
             let text = toml::to_string_pretty(&state)?;
             match file {

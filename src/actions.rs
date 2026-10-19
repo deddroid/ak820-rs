@@ -9,7 +9,7 @@ use crate::keys;
 use crate::lighting::Mode;
 use crate::profile::{KeyColors, Profile};
 use crate::protocol::ClockTime;
-use crate::screen::{self, Fit, Frame};
+use crate::screen::{self, Crop, Fit, Frame};
 use crate::{Error, Result, Rgb};
 
 pub fn now() -> ClockTime {
@@ -37,11 +37,11 @@ pub fn send_key_colors(kb: &Keyboard, c: &KeyColors) -> Result<()> {
     kb.set_key_colors(c.brightness, &c.resolve()?)
 }
 
-pub fn load_frames(file: &Path, fit: Fit) -> Result<Vec<Frame>> {
+pub fn load_frames(file: &Path, fit: Fit, crop: Crop) -> Result<Vec<Frame>> {
     if !file.is_file() {
         return Err(Error::Invalid(format!("image {} not found", file.display())));
     }
-    screen::load(file, fit).map_err(|e| Error::Invalid(format!("cannot load {}: {e}", file.display())))
+    screen::load(file, fit, crop).map_err(|e| Error::Invalid(format!("cannot load {}: {e}", file.display())))
 }
 
 pub fn upload_frames(kb: &Keyboard, frames: &[Frame], progress: impl FnMut(usize, usize)) -> Result<()> {
@@ -87,7 +87,7 @@ pub fn apply(
     if let Some(s) = &p.screen {
         if kb.connection() == Connection::Wired {
             log(format!("screen: {}", s.image.display()));
-            upload_frames(kb, &load_frames(&s.image, s.fit)?, &mut *progress)?;
+            upload_frames(kb, &load_frames(&s.image, s.fit, s.crop)?, &mut *progress)?;
         } else {
             log("screen skipped: it needs the USB cable".into());
         }

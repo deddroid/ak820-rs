@@ -2,29 +2,35 @@
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod autostart;
 mod i18n;
+mod instance;
 mod layout;
+mod settings;
+mod tray;
 mod worker;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
-use std::time::Instant;
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Button, Color32, ComboBox, CornerRadius, FontId, RichText, Slider, Stroke, TextStyle, TextureHandle,
-    TextureOptions, Ui, Vec2,
+    self, Button, Color32, ComboBox, CornerRadius, FontId, Pos2, Rect, RichText, Slider, Stroke, TextStyle,
+    TextureHandle, TextureOptions, Ui, Vec2,
 };
 
 use ak820::lighting::{Direction, Lighting, Mode};
 use ak820::macros::{MacroDef, MacroMode};
 use ak820::profile::{self, FnMode, KeyColors, Keymap, Profile, Screen, SleepTime, System};
-use ak820::screen::{self, Fit, Frame};
+use ak820::screen::{self, Crop, Fit};
 use ak820::{actions, keys, Rgb};
 
 use i18n::{t, Lang};
 use layout::{KeyLook, LAYOUT};
+use settings::Settings;
+use tray::{TrayCmd, Wake};
 use worker::{Job, Msg, Op, Status};
 
 const ACCENT: Color32 = Color32::from_rgb(124, 92, 255);
@@ -34,8 +40,8 @@ const WARN: Color32 = Color32::from_rgb(240, 180, 60);
 const ERR: Color32 = Color32::from_rgb(235, 90, 90);
 const KEYCAP: Color32 = Color32::from_rgb(48, 48, 60);
 
-fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
+fn native_options() -> eframe::NativeOptions {
+    eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("AK820 Pro")
             .with_app_id("ak820")
@@ -43,8 +49,82 @@ fn main() -> eframe::Result {
             .with_min_inner_size([900.0, 620.0])
             .with_icon(app_icon()),
         ..Default::default()
+    }
+}
+
+/// The window is closed and reopened while the app lives on in the tray, so the
+/// app state outlives each window. (Wayland cannot hide a window: closing it is
+/// the only portable way to go to the tray.)
+struct Window(Arc<Mutex<App>>);
+
+impl eframe::App for Window {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        eframe::App::update(&mut *self.0.lock().unwrap(), ctx, frame);
+    }
+}
+
+fn main() -> eframe::Result {
+    let start_in_tray = std::env::args().any(|a| a == autostart::TRAY_FLAG);
+    let screenshots = std::env::var_os("AK820_GUI_SHOTS").is_some();
+    let settings = Settings::load();
+    i18n::init(settings.lang);
+
+    // The current window's context, if a window is open: used to wake the UI.
+    let ctx_slot: Arc<Mutex<Option<egui::Context>>> = Arc::default();
+    let wake: Wake = {
+        let slot = ctx_slot.clone();
+        Arc::new(move || {
+            if let Some(ctx) = slot.lock().unwrap().as_ref() {
+                ctx.request_repaint();
+            }
+        })
     };
-    eframe::run_native("AK820 Pro", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+    let (tray_tx, tray_rx) = channel();
+    if !screenshots {
+        let (tx, w) = (tray_tx.clone(), wake.clone());
+        let primary = instance::acquire(move || {
+            let _ = tx.send(TrayCmd::Open);
+            w();
+        });
+        if !primary {
+            return Ok(()); // the running instance shows its window
+        }
+    }
+
+    let app = Arc::new(Mutex::new(App::new(settings, wake, tray_tx, tray_rx, start_in_tray)));
+    let mut show = !(start_in_tray && app.lock().unwrap().tray.is_some());
+    loop {
+        if show {
+            let (a, slot) = (app.clone(), ctx_slot.clone());
+            eframe::run_native(
+                "AK820 Pro",
+                native_options(),
+                Box::new(move |cc| {
+                    *slot.lock().unwrap() = Some(cc.egui_ctx.clone());
+                    a.lock().unwrap().attach(&cc.egui_ctx);
+                    Ok(Box::new(Window(a)))
+                }),
+            )?;
+            *ctx_slot.lock().unwrap() = None;
+            let a = app.lock().unwrap();
+            if a.quit || a.tray.is_none() {
+                break;
+            }
+            show = false;
+        } else {
+            // Window closed, icon in the tray: wait for the tray menu.
+            let cmd = app.lock().unwrap().tray_rx.recv_timeout(Duration::from_millis(500));
+            let mut a = app.lock().unwrap();
+            match cmd {
+                Ok(TrayCmd::Open) => show = true,
+                Ok(TrayCmd::Apply(name)) => a.apply_named(&name),
+                Ok(TrayCmd::Quit) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            a.handle_messages();
+        }
+    }
+    Ok(())
 }
 
 fn app_icon() -> egui::IconData {
@@ -259,7 +339,14 @@ struct Shots {
 
 struct App {
     tab: Tab,
-    lang: Lang,
+    settings: Settings,
+    autostart: bool,
+    tray: Option<tray::Handle>,
+    tray_tx: Sender<TrayCmd>,
+    tray_rx: Receiver<TrayCmd>,
+    wake: Wake,
+    quit: bool,
+    clock_synced: bool,
     state: Profile,
     busy: bool,
     resync_after_job: bool,
@@ -290,8 +377,12 @@ struct App {
 
     screen_path: Option<PathBuf>,
     fit: Fit,
-    frames: Option<Arc<Vec<Frame>>>,
-    preview: Vec<(TextureHandle, u32)>,
+    crop: Crop,
+    /// Decoded frames (downscaled for the preview) with their durations.
+    source: Vec<(image::RgbaImage, u32)>,
+    /// Size of the original image, which the crop refers to.
+    source_size: (u32, u32),
+    textures: Option<Vec<TextureHandle>>,
     preview_start: Instant,
     screen_error: Option<String>,
 
@@ -299,21 +390,30 @@ struct App {
     battery: Option<Option<u8>>,
     confirm_reset: bool,
     profile_error: Option<String>,
+    profiles: Vec<(String, Profile)>,
+    new_profile: String,
+    renaming: Option<(String, String)>,
+    confirm_delete: Option<String>,
 
     shots: Option<Shots>,
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext) -> Self {
-        setup_style(&cc.egui_ctx);
+    fn new(settings: Settings, wake: Wake, tray_tx: Sender<TrayCmd>, tray_rx: Receiver<TrayCmd>, start_in_tray: bool) -> Self {
         let (job_tx, job_rx) = channel();
         let (msg_tx, msg_rx) = channel();
-        worker::spawn(job_rx, msg_tx, cc.egui_ctx.clone());
+        worker::spawn(job_rx, msg_tx, wake.clone());
 
         let state = profile::load_state();
         let mut app = App {
             tab: Tab::Lighting,
-            lang: i18n::init(),
+            autostart: autostart::is_enabled(),
+            tray: None,
+            tray_tx,
+            tray_rx,
+            wake,
+            quit: false,
+            clock_synced: false,
             state: Profile::default(),
             busy: false,
             resync_after_job: false,
@@ -340,28 +440,95 @@ impl App {
             macro_error: None,
             screen_path: None,
             fit: Fit::Crop,
-            frames: None,
-            preview: Vec::new(),
+            crop: Crop::default(),
+            source: Vec::new(),
+            source_size: (1, 1),
+            textures: None,
             preview_start: Instant::now(),
             screen_error: None,
             system: System::default(),
             battery: None,
             confirm_reset: false,
             profile_error: None,
+            profiles: Vec::new(),
+            new_profile: String::new(),
+            renaming: None,
+            confirm_delete: None,
             shots: std::env::var_os("AK820_GUI_SHOTS")
                 .map(|d| Shots { dir: d.into(), index: 0, wait: 0, requested: false }),
+            settings,
         };
         app.state = state;
         app.load_drafts();
+        app.refresh_profiles();
+        if app.settings.close_to_tray || start_in_tray {
+            app.set_tray(true);
+        }
         if app.shots.is_some() {
             app.selected = Some("pgdn");
             app.editor = TargetEditor::from_target("ctrl+end");
             let demo = Path::new("examples/test-anim.gif");
             if demo.exists() {
-                app.load_screen(&cc.egui_ctx, demo.to_path_buf());
+                app.load_screen(demo.to_path_buf(), Crop { zoom: 1.6, x: 0.6, y: 0.45 });
             }
         }
         app
+    }
+
+    /// A new window was opened: style it and drop textures of the previous one.
+    fn attach(&mut self, ctx: &egui::Context) {
+        if std::env::var_os("AK820_DEBUG").is_some() {
+            eprintln!("window opened");
+        }
+        setup_style(ctx);
+        self.textures = None;
+    }
+
+    fn set_tray(&mut self, on: bool) {
+        if on && self.tray.is_none() {
+            let names = self.profiles.iter().map(|(n, _)| n.clone()).collect();
+            self.tray = tray::spawn(self.tray_tx.clone(), self.wake.clone(), names, self.settings.active_profile.clone());
+            if self.tray.is_none() {
+                self.log.push((t("The system tray is not available", "La tray di sistema non è disponibile").into(), true));
+            }
+        } else if !on {
+            self.tray = None;
+        }
+    }
+
+    fn save_settings(&mut self) {
+        if let Err(e) = self.settings.save() {
+            let msg = t("Could not save the settings", "Impossibile salvare le impostazioni");
+            self.log.push((format!("{msg}: {e}"), true));
+        }
+    }
+
+    fn refresh_profiles(&mut self) {
+        self.profiles = profile::list_profiles()
+            .into_iter()
+            .map(|n| {
+                let p = profile::load_named(&n).unwrap_or_default();
+                (n, p)
+            })
+            .collect();
+        if let Some(tray) = &self.tray {
+            tray.set_profiles(self.profiles.iter().map(|(n, _)| n.clone()).collect(), self.settings.active_profile.clone());
+        }
+    }
+
+    /// Switch the keyboard to a saved profile.
+    fn apply_named(&mut self, name: &str) {
+        match profile::load_named(name).and_then(|p| p.validate().map(|_| p)) {
+            Ok(p) => {
+                self.resync_after_job = true;
+                let title = format!("{} {name}", t("Profile", "Profilo"));
+                self.run(&title, Op::Apply(p.as_full_switch()), Some(p));
+                self.settings.active_profile = Some(name.to_string());
+                self.save_settings();
+                self.refresh_profiles();
+            }
+            Err(e) => self.log.push((format!("{name}: {e}"), true)),
+        }
     }
 
     /// Reset every editor to the remembered configuration.
@@ -374,6 +541,15 @@ impl App {
         self.keymap = s.keymap.clone().unwrap_or_default();
         self.macros = s.macros.clone();
         self.system = s.system.unwrap_or_default();
+        if let Some(sc) = self.state.screen.clone() {
+            if self.screen_path.as_ref() != Some(&sc.image) {
+                self.fit = sc.fit;
+                self.load_screen(sc.image, sc.crop);
+            } else {
+                self.fit = sc.fit;
+                self.crop = sc.crop;
+            }
+        }
     }
 
     fn connected(&self) -> bool {
@@ -398,6 +574,10 @@ impl App {
                         self.battery = None;
                     }
                     self.status = s;
+                    if self.settings.sync_clock_on_start && !self.clock_synced && self.connected() {
+                        self.clock_synced = true;
+                        self.run(t("Clock", "Orologio"), Op::Clock, None);
+                    }
                 }
                 Msg::Log { text, error } => {
                     if error {
@@ -951,28 +1131,109 @@ impl App {
         self.send_keymap_bar(ui, false);
     }
 
-    fn load_screen(&mut self, ctx: &egui::Context, path: PathBuf) {
+    fn load_screen(&mut self, path: PathBuf, crop: Crop) {
         self.screen_error = None;
-        match actions::load_frames(&path, self.fit) {
+        self.textures = None;
+        match screen::load_source(&path) {
             Ok(frames) => {
-                self.preview = frames
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| {
-                        let img = egui::ColorImage::from_rgb([screen::SIZE as usize; 2], &rgb565_to_rgb(&f.rgb565));
-                        (ctx.load_texture(format!("frame{i}"), img, TextureOptions::NEAREST), f.duration_ms.max(30))
+                self.source_size = frames.first().map_or((1, 1), |f| f.image.dimensions());
+                // Keep the preview light: at most 512 px on the long side.
+                self.source = frames
+                    .into_iter()
+                    .map(|f| {
+                        let (w, h) = f.image.dimensions();
+                        let img = if w.max(h) > 512 {
+                            let k = 512.0 / w.max(h) as f32;
+                            image::imageops::thumbnail(&f.image, (w as f32 * k) as u32, (h as f32 * k) as u32)
+                        } else {
+                            f.image
+                        };
+                        (img, f.duration_ms.max(30))
                     })
                     .collect();
+                let (w, h) = self.source_size;
+                self.crop = crop.clamped(w, h);
                 self.preview_start = Instant::now();
-                self.frames = Some(Arc::new(frames));
             }
             Err(e) => {
-                self.frames = None;
-                self.preview.clear();
+                self.source.clear();
                 self.screen_error = Some(e.to_string());
             }
         }
         self.screen_path = Some(path);
+    }
+
+    /// Draw the 128×128 screen preview; in crop mode it can be dragged and zoomed.
+    fn screen_preview(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        let size = Vec2::splat(288.0);
+        let sense = if self.fit == Fit::Crop { egui::Sense::drag() } else { egui::Sense::hover() };
+        let (rect, resp) = ui.allocate_exact_size(size, sense);
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, CornerRadius::same(8), Color32::BLACK);
+        if self.source.is_empty() {
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, t("no image", "nessuna immagine"), FontId::proportional(14.0), Color32::GRAY);
+            return;
+        }
+        let textures = self.textures.get_or_insert_with(|| {
+            self.source
+                .iter()
+                .enumerate()
+                .map(|(i, (img, _))| {
+                    let ci = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw());
+                    ctx.load_texture(format!("screen{i}"), ci, TextureOptions::LINEAR)
+                })
+                .collect()
+        });
+        // Current animation frame.
+        let total: u32 = self.source.iter().map(|f| f.1).sum();
+        let mut ms = (self.preview_start.elapsed().as_millis() as u32) % total.max(1);
+        let mut idx = 0;
+        for (i, (_, d)) in self.source.iter().enumerate() {
+            if ms < *d {
+                idx = i;
+                break;
+            }
+            ms -= d;
+        }
+        let tex = textures[idx].id();
+        let (w, h) = (self.source_size.0 as f32, self.source_size.1 as f32);
+        let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        match self.fit {
+            Fit::Crop => {
+                let (x0, y0, side) = self.crop.rect(self.source_size.0, self.source_size.1);
+                let uv = Rect::from_min_max(Pos2::new(x0 / w, y0 / h), Pos2::new((x0 + side) / w, (y0 + side) / h));
+                painter.image(tex, rect, uv, Color32::WHITE);
+                if resp.dragged() {
+                    let d = resp.drag_delta();
+                    self.crop.x -= d.x / rect.width() * side / w;
+                    self.crop.y -= d.y / rect.height() * side / h;
+                    self.crop = self.crop.clamped(self.source_size.0, self.source_size.1);
+                }
+                if resp.hovered() {
+                    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+                    if scroll != 0.0 {
+                        self.crop.zoom *= (scroll * 0.003).exp();
+                        self.crop = self.crop.clamped(self.source_size.0, self.source_size.1);
+                        // Don't scroll the page while zooming.
+                        ui.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
+                    }
+                    ctx.set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+                }
+            }
+            Fit::Pad => {
+                let k = size.x / w.max(h);
+                let inner = Rect::from_center_size(rect.center(), Vec2::new(w * k, h * k));
+                painter.image(tex, inner, full, Color32::WHITE);
+            }
+            Fit::Stretch => {
+                painter.image(tex, rect, full, Color32::WHITE);
+            }
+        }
+        painter.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0_f32, Color32::from_gray(90)), egui::StrokeKind::Inside);
+        if self.source.len() > 1 {
+            ctx.request_repaint_after(Duration::from_millis(15));
+        }
     }
 
     fn tab_screen(&mut self, ui: &mut Ui) {
@@ -984,40 +1245,22 @@ impl App {
                 "Immagine o GIF animata sul display 128×128. Trascina un file qui o sceglilo.",
             ),
         );
-        let ctx = ui.ctx().clone();
-        let dropped = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone()));
+        let dropped = ui.ctx().input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone()));
         if let Some(p) = dropped {
-            self.load_screen(&ctx, p);
+            self.load_screen(p, Crop::default());
         }
         ui.columns(2, |cols| {
-            card(&mut cols[0], t("Preview (colors as on the screen)", "Anteprima (colori come sul display)"), |ui| {
-                let size = Vec2::splat(256.0);
-                if self.preview.is_empty() {
-                    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                    ui.painter().rect_filled(rect, CornerRadius::same(8), Color32::BLACK);
-                    ui.painter().text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        t("no image", "nessuna immagine"),
-                        FontId::proportional(14.0),
-                        Color32::GRAY,
+            card(&mut cols[0], t("Preview", "Anteprima"), |ui| {
+                self.screen_preview(ui);
+                if self.fit == Fit::Crop && !self.source.is_empty() {
+                    ui.label(
+                        RichText::new(t(
+                            "Drag to move the image · scroll to zoom",
+                            "Trascina per spostare l'immagine · rotella per lo zoom",
+                        ))
+                        .small()
+                        .weak(),
                     );
-                } else {
-                    let total: u32 = self.preview.iter().map(|p| p.1).sum();
-                    let mut t = (self.preview_start.elapsed().as_millis() as u32) % total.max(1);
-                    let mut idx = 0;
-                    for (i, (_, d)) in self.preview.iter().enumerate() {
-                        if t < *d {
-                            idx = i;
-                            break;
-                        }
-                        t -= d;
-                    }
-                    let tex = &self.preview[idx].0;
-                    ui.add(egui::Image::new(egui::load::SizedTexture::new(tex.id(), size)).corner_radius(8));
-                    if self.preview.len() > 1 {
-                        ctx.request_repaint_after(std::time::Duration::from_millis(15));
-                    }
                 }
             });
             let ui = &mut cols[1];
@@ -1027,7 +1270,7 @@ impl App {
                         .add_filter(t("Images", "Immagini"), &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
                         .pick_file()
                     {
-                        self.load_screen(&ctx, p);
+                        self.load_screen(p, Crop::default());
                     }
                 }
                 if let Some(p) = &self.screen_path {
@@ -1036,26 +1279,34 @@ impl App {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label(t("Fit:", "Adattamento:"));
-                    let before = self.fit;
                     ui.selectable_value(&mut self.fit, Fit::Crop, t("Crop", "Ritaglia"));
                     ui.selectable_value(&mut self.fit, Fit::Pad, t("Black bars", "Bande nere"));
                     ui.selectable_value(&mut self.fit, Fit::Stretch, t("Stretch", "Allunga"));
-                    if before != self.fit {
-                        if let Some(p) = self.screen_path.clone() {
-                            self.load_screen(&ctx, p);
-                        }
-                    }
                 });
-                if let Some(f) = &self.frames {
-                    let blocks = screen::blocks(f).len();
-                    let secs = blocks * 50 / 1000 + 1;
-                    ui.label(match (i18n::current(), f.len()) {
-                        (Lang::En, 1) => format!("1 frame · {blocks} blocks · ~{secs} s to send"),
-                        (Lang::En, n) => format!("{n} frames · {blocks} blocks · ~{secs} s to send"),
-                        (Lang::It, 1) => format!("1 fotogramma · {blocks} blocchi · ~{secs} s di invio"),
-                        (Lang::It, n) => format!("{n} fotogrammi · {blocks} blocchi · ~{secs} s di invio"),
+                if self.fit == Fit::Crop && !self.source.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.label("Zoom");
+                        let r = ui.add(Slider::new(&mut self.crop.zoom, 1.0..=screen::MAX_ZOOM).logarithmic(true).fixed_decimals(1).suffix("×"));
+                        if r.changed() {
+                            self.crop = self.crop.clamped(self.source_size.0, self.source_size.1);
+                        }
+                        if ui.button(t("Reset", "Centra")).clicked() {
+                            self.crop = Crop::default();
+                        }
                     });
-                    if f.len() >= screen::MAX_FRAMES {
+                }
+                if !self.source.is_empty() {
+                    let n = self.source.len();
+                    let blocks = screen::block_count(n);
+                    let secs = blocks * 50 / 1000 + 1;
+                    let (w, h) = self.source_size;
+                    ui.label(match (i18n::current(), n) {
+                        (Lang::En, 1) => format!("{w}×{h} · 1 frame · {blocks} blocks · ~{secs} s to send"),
+                        (Lang::En, n) => format!("{w}×{h} · {n} frames · {blocks} blocks · ~{secs} s to send"),
+                        (Lang::It, 1) => format!("{w}×{h} · 1 fotogramma · {blocks} blocchi · ~{secs} s di invio"),
+                        (Lang::It, n) => format!("{w}×{h} · {n} fotogrammi · {blocks} blocchi · ~{secs} s di invio"),
+                    });
+                    if n >= screen::MAX_FRAMES {
                         let n = screen::MAX_FRAMES;
                         let text = match i18n::current() {
                             Lang::En => format!("Limited to the first {n} frames"),
@@ -1070,21 +1321,82 @@ impl App {
             });
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let ready = self.frames.is_some();
+                let ready = !self.source.is_empty();
                 ui.add_enabled_ui(ready, |ui| {
                     if self.action(ui, t("⬆ Send to screen", "⬆ Invia al display"), true) {
-                        let frames = self.frames.clone().unwrap();
-                        let mut s = self.state.clone();
                         if let Some(p) = &self.screen_path {
                             let image = std::fs::canonicalize(p).unwrap_or(p.clone());
-                            s.screen = Some(Screen { image, fit: self.fit });
+                            let sc = Screen { image, fit: self.fit, crop: self.crop };
+                            let mut s = self.state.clone();
+                            s.screen = Some(sc.clone());
+                            self.run(t("Sending to screen", "Invio al display"), Op::Screen(sc), Some(s));
                         }
-                        self.run(t("Sending to screen", "Invio al display"), Op::Screen(frames), Some(s));
                     }
                 });
                 if ui.add_enabled(!self.busy && self.connected(), Button::new(t("🕒 Show clock", "🕒 Mostra orologio"))).clicked() {
-                    self.run("Orologio", Op::Clock, None);
+                    self.run(t("Clock", "Orologio"), Op::Clock, None);
                 }
+            });
+        });
+    }
+
+    fn app_settings_card(&mut self, ui: &mut Ui) {
+        card(ui, t("Application", "Applicazione"), |ui| {
+            egui::Grid::new("app-settings").num_columns(2).spacing([24.0, 12.0]).show(ui, |ui| {
+                ui.label(t("Language", "Lingua"));
+                let mut lang = i18n::current();
+                ComboBox::from_id_salt("lang")
+                    .selected_text(format!("🌐  {}", lang.name()))
+                    .width(180.0)
+                    .show_ui(ui, |ui| {
+                        for l in Lang::ALL {
+                            ui.selectable_value(&mut lang, l, l.name());
+                        }
+                    });
+                if lang != i18n::current() {
+                    i18n::set(lang);
+                    self.settings.lang = Some(lang);
+                    self.save_settings();
+                    self.refresh_profiles(); // tray menu labels
+                }
+                ui.end_row();
+
+                ui.label(t("Startup", "Avvio"));
+                let mut autostart = self.autostart;
+                ui.checkbox(&mut autostart, t("Start with the computer (in the tray)", "Avvia all'accensione del PC (nella tray)"));
+                if autostart != self.autostart {
+                    match autostart::set(autostart) {
+                        Ok(()) => self.autostart = autostart,
+                        Err(e) => {
+                            let msg = t("Could not change the startup setting", "Impossibile cambiare l'avvio automatico");
+                            self.log.push((format!("{msg}: {e}"), true));
+                        }
+                    }
+                }
+                ui.end_row();
+
+                ui.label(t("Closing the window", "Chiusura finestra"));
+                let mut to_tray = self.settings.close_to_tray;
+                ui.checkbox(&mut to_tray, t("Keep running in the tray", "Riduci nella tray"))
+                    .on_hover_text(t(
+                        "The icon in the system tray reopens the window and switches profile. On GNOME it needs the AppIndicator extension.",
+                        "L'icona nella tray riapre la finestra e cambia profilo. Su GNOME serve l'estensione AppIndicator.",
+                    ));
+                if to_tray != self.settings.close_to_tray {
+                    self.settings.close_to_tray = to_tray;
+                    self.save_settings();
+                    self.set_tray(to_tray);
+                }
+                ui.end_row();
+
+                ui.label(t("Clock", "Orologio"));
+                let mut sync = self.settings.sync_clock_on_start;
+                ui.checkbox(&mut sync, t("Sync the screen clock when the app starts", "Sincronizza l'orologio del display all'avvio"));
+                if sync != self.settings.sync_clock_on_start {
+                    self.settings.sync_clock_on_start = sync;
+                    self.save_settings();
+                }
+                ui.end_row();
             });
         });
     }
@@ -1095,6 +1407,8 @@ impl App {
             t("System", "Sistema"),
             t("Clock, power saving and key behavior.", "Orologio, risparmio energetico e comportamento dei tasti."),
         );
+        self.app_settings_card(ui);
+        ui.add_space(8.0);
         card(ui, t("Screen clock", "Orologio del display"), |ui| {
             ui.horizontal(|ui| {
                 let format = t("%Y-%m-%d  %H:%M:%S", "%d/%m/%Y  %H:%M:%S");
@@ -1165,6 +1479,178 @@ impl App {
         });
     }
 
+    fn saved_profiles_card(&mut self, ui: &mut Ui) {
+        enum Action {
+            Apply(String),
+            Overwrite(String),
+            StartRename(String),
+            Rename(String, String),
+            CancelRename,
+            AskDelete(String),
+            Delete(String),
+            CancelDelete,
+        }
+        let mut action = None;
+        card(ui, t("Saved profiles", "Profili salvati"), |ui| {
+            ui.label(
+                RichText::new(t(
+                    "A profile holds everything: lighting, per-key colors, remaps, macros, screen and settings. Apply switches the keyboard to it in one click (also from the tray menu).",
+                    "Un profilo contiene tutto: luci, colori per tasto, rimappature, macro, display e impostazioni. Applica porta la tastiera a quel profilo con un clic (anche dal menu della tray).",
+                ))
+                .weak(),
+            );
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.new_profile)
+                        .hint_text(t("New profile name", "Nome del nuovo profilo"))
+                        .desired_width(220.0),
+                );
+                let name = self.new_profile.trim().to_string();
+                let exists = self.profiles.iter().any(|(n, _)| *n == name);
+                let label = if exists { t("💾 Overwrite", "💾 Sovrascrivi") } else { t("💾 Save current configuration", "💾 Salva la configurazione attuale") };
+                if ui
+                    .add_enabled(!name.is_empty(), Button::new(label))
+                    .on_hover_text(t(
+                        "Saves what was last sent to the keyboard (unsent edits are not included)",
+                        "Salva quello che è stato inviato alla tastiera (le modifiche non inviate sono escluse)",
+                    ))
+                    .clicked()
+                {
+                    action = Some(Action::Overwrite(name));
+                }
+            });
+            ui.add_space(6.0);
+            if self.profiles.is_empty() {
+                ui.label(RichText::new(t("No saved profiles yet.", "Ancora nessun profilo salvato.")).weak());
+            }
+            let can_apply = !self.busy && self.connected();
+            let confirm_delete = self.confirm_delete.clone();
+            let active_profile = self.settings.active_profile.clone();
+            let renaming = &mut self.renaming;
+            for (name, p) in &self.profiles {
+                let active = active_profile.as_deref() == Some(name.as_str());
+                egui::Frame::new()
+                    .fill(if active { ACCENT_SOFT.gamma_multiply(0.5) } else { ui.visuals().extreme_bg_color })
+                    .corner_radius(CornerRadius::same(8))
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            if let Some((old, buf)) = renaming.as_mut().filter(|(o, _)| o == name) {
+                                ui.add(egui::TextEdit::singleline(buf).desired_width(200.0));
+                                if ui.button("✔").clicked() {
+                                    action = Some(Action::Rename(old.clone(), buf.trim().to_string()));
+                                }
+                                if ui.button("✖").clicked() {
+                                    action = Some(Action::CancelRename);
+                                }
+                            } else {
+                                ui.vertical(|ui| {
+                                    let mut title = RichText::new(name).strong().size(16.0);
+                                    if active {
+                                        title = title.color(Color32::WHITE);
+                                    }
+                                    ui.horizontal(|ui| {
+                                        ui.label(title);
+                                        if active {
+                                            ui.label(RichText::new(t("● active", "● attivo")).color(OK).small());
+                                        }
+                                    });
+                                    ui.label(RichText::new(profile_summary(p)).weak().small());
+                                });
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if confirm_delete.as_deref() == Some(name.as_str()) {
+                                    if ui.button(t("Cancel", "Annulla")).clicked() {
+                                        action = Some(Action::CancelDelete);
+                                    }
+                                    if ui.add(Button::new(RichText::new(t("Delete", "Elimina")).color(Color32::WHITE)).fill(ERR)).clicked() {
+                                        action = Some(Action::Delete(name.clone()));
+                                    }
+                                    return;
+                                }
+                                if ui.small_button("🗑").on_hover_text(t("Delete", "Elimina")).clicked() {
+                                    action = Some(Action::AskDelete(name.clone()));
+                                }
+                                if ui.small_button("✏").on_hover_text(t("Rename", "Rinomina")).clicked() {
+                                    action = Some(Action::StartRename(name.clone()));
+                                }
+                                if ui
+                                    .small_button("⟳")
+                                    .on_hover_text(t("Replace with the current configuration", "Sostituisci con la configurazione attuale"))
+                                    .clicked()
+                                {
+                                    action = Some(Action::Overwrite(name.clone()));
+                                }
+                                let b = Button::new(RichText::new(t("▶ Apply", "▶ Applica")).strong().color(Color32::WHITE))
+                                    .fill(ACCENT)
+                                    .min_size(Vec2::new(100.0, 30.0));
+                                if ui.add_enabled(can_apply, b).clicked() {
+                                    action = Some(Action::Apply(name.clone()));
+                                }
+                            });
+                        });
+                    });
+                ui.add_space(4.0);
+            }
+        });
+        let result = match action {
+            None => return,
+            Some(Action::Apply(n)) => {
+                self.apply_named(&n);
+                Ok(())
+            }
+            Some(Action::Overwrite(n)) => profile::save_named(&n, &self.state).map(|_| {
+                self.new_profile.clear();
+                self.settings.active_profile = Some(n);
+                self.save_settings();
+            }),
+            Some(Action::StartRename(n)) => {
+                self.renaming = Some((n.clone(), n));
+                Ok(())
+            }
+            Some(Action::Rename(old, new)) => {
+                self.renaming = None;
+                if old == new {
+                    Ok(())
+                } else {
+                    profile::rename_named(&old, &new).map(|_| {
+                        if self.settings.active_profile.as_deref() == Some(old.as_str()) {
+                            self.settings.active_profile = Some(new);
+                            self.save_settings();
+                        }
+                    })
+                }
+            }
+            Some(Action::CancelRename) => {
+                self.renaming = None;
+                Ok(())
+            }
+            Some(Action::AskDelete(n)) => {
+                self.confirm_delete = Some(n);
+                Ok(())
+            }
+            Some(Action::Delete(n)) => {
+                self.confirm_delete = None;
+                profile::delete_named(&n).map(|_| {
+                    if self.settings.active_profile.as_deref() == Some(n.as_str()) {
+                        self.settings.active_profile = None;
+                        self.save_settings();
+                    }
+                })
+            }
+            Some(Action::CancelDelete) => {
+                self.confirm_delete = None;
+                Ok(())
+            }
+        };
+        if let Err(e) = result {
+            self.profile_error = Some(e.to_string());
+        }
+        self.refresh_profiles();
+    }
+
     fn tab_profiles(&mut self, ui: &mut Ui) {
         title(
             ui,
@@ -1174,6 +1660,8 @@ impl App {
                 "Salva, carica e reinvia l'intera configurazione (file TOML, compatibili con la CLI).",
             ),
         );
+        self.saved_profiles_card(ui);
+        ui.add_space(8.0);
         card(ui, t("Files", "File"), |ui| {
             ui.horizontal(|ui| {
                 if ui.add_enabled(!self.busy && self.connected(), Button::new(t("📂 Import and apply…", "📂 Importa e applica…"))).clicked() {
@@ -1355,23 +1843,6 @@ impl App {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 ui.add_space(10.0);
                 ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().weak());
-                ui.add_space(4.0);
-                let before = self.lang;
-                ComboBox::from_id_salt("lang")
-                    .selected_text(format!("🌐  {}", self.lang.name()))
-                    .width(170.0)
-                    .show_ui(ui, |ui| {
-                        for l in Lang::ALL {
-                            ui.selectable_value(&mut self.lang, l, l.name());
-                        }
-                    });
-                if self.lang != before {
-                    i18n::set(self.lang);
-                    if let Err(e) = i18n::save(self.lang) {
-                        let msg = t("Could not save the language choice", "Impossibile salvare la lingua scelta");
-                        self.log.push((format!("{msg}: {e}"), true));
-                    }
-                }
             });
         });
     }
@@ -1396,6 +1867,7 @@ impl App {
             shots.wait = 0;
             shots.requested = false;
             if shots.index >= TABS.len() {
+                self.quit = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 return;
             }
@@ -1412,6 +1884,19 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        while let Ok(cmd) = self.tray_rx.try_recv() {
+            match cmd {
+                TrayCmd::Open => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                TrayCmd::Apply(name) => self.apply_named(&name),
+                TrayCmd::Quit => {
+                    self.quit = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
         self.handle_messages();
         self.screenshots(ctx);
         self.nav(ctx);
@@ -1539,6 +2024,29 @@ fn name_combo(ui: &mut Ui, id: &str, value: &mut String, names: &[&str], allow_e
         });
 }
 
+fn profile_summary(p: &Profile) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match (&p.lighting, &p.key_colors) {
+        (Some(l), _) if l.mode != Mode::Custom => parts.push(format!("💡 {}", mode_label(l.mode))),
+        (_, Some(_)) => parts.push(format!("🎨 {}", t("per-key colors", "colori per tasto"))),
+        _ => {}
+    }
+    let remaps = p.keymap.as_ref().map_or(0, |k| k.normal.len() + k.fn_layer.len());
+    if remaps > 0 {
+        parts.push(format!("⌨ {remaps} {}", t("remaps", "rimappature")));
+    }
+    if !p.macros.is_empty() {
+        parts.push(format!("📝 {} macro", p.macros.len()));
+    }
+    if p.screen.is_some() {
+        parts.push(format!("🖼 {}", t("screen image", "immagine display")));
+    }
+    if parts.is_empty() {
+        return t("empty", "vuoto").into();
+    }
+    parts.join("  ·  ")
+}
+
 fn macro_mode_label(m: MacroMode) -> &'static str {
     match m {
         MacroMode::Once => t("Once", "Una volta"),
@@ -1556,19 +2064,4 @@ fn rename_macro_refs(km: &mut Keymap, old: &str, new: &str) {
             *t = to.clone();
         }
     }
-}
-
-/// Decode the RGB565 frame back to RGB, so the preview shows the display's real colors.
-fn rgb565_to_rgb(data: &[u8]) -> Vec<u8> {
-    data.as_chunks::<2>()
-        .0
-        .iter()
-        .flat_map(|&c| {
-            let v = u16::from_le_bytes(c);
-            let r = ((v >> 11) & 0x1F) as u8;
-            let g = ((v >> 5) & 0x3F) as u8;
-            let b = (v & 0x1F) as u8;
-            [(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2)]
-        })
-        .collect()
 }

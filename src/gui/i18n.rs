@@ -1,8 +1,5 @@
-//! English/Italian strings for the GUI, plus the per-user language preference.
-//!
-//! The preference lives in `gui.toml`, separate from the keyboard state file.
+//! English/Italian strings for the GUI.
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -58,35 +55,12 @@ pub fn t<'a>(en: &'a str, it: &'a str) -> &'a str {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
-struct GuiSettings {
-    lang: Option<Lang>,
-}
-
-fn settings_path() -> Option<PathBuf> {
-    Some(dirs::config_dir()?.join("ak820").join("gui.toml"))
-}
-
 /// Choose the startup language: `AK820_GUI_LANG`, then the saved choice, then the system locale.
-pub fn init() -> Lang {
+pub fn init(saved: Option<Lang>) -> Lang {
     let forced = std::env::var("AK820_GUI_LANG").ok().and_then(|v| Lang::parse(&v));
-    let saved = || {
-        let text = std::fs::read_to_string(settings_path()?).ok()?;
-        toml::from_str::<GuiSettings>(&text).ok()?.lang
-    };
-    let lang = forced.or_else(saved).unwrap_or_else(system_lang);
+    let lang = forced.or(saved).unwrap_or_else(system_lang);
     set(lang);
     lang
-}
-
-/// Remember the language chosen in the sidebar.
-pub fn save(lang: Lang) -> std::io::Result<()> {
-    let Some(path) = settings_path() else { return Ok(()) };
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let text = toml::to_string(&GuiSettings { lang: Some(lang) }).map_err(std::io::Error::other)?;
-    std::fs::write(path, text)
 }
 
 fn system_lang() -> Lang {
@@ -125,12 +99,5 @@ mod tests {
         assert_eq!(Lang::parse("it_IT.UTF-8"), Some(Lang::It));
         assert_eq!(Lang::parse("EN"), Some(Lang::En));
         assert_eq!(Lang::parse("de_DE"), None);
-    }
-
-    #[test]
-    fn settings_round_trip() {
-        let text = toml::to_string(&GuiSettings { lang: Some(Lang::It) }).unwrap();
-        assert_eq!(text.trim(), r#"lang = "it""#);
-        assert_eq!(toml::from_str::<GuiSettings>(&text).unwrap().lang, Some(Lang::It));
     }
 }

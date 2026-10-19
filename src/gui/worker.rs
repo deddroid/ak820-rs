@@ -1,18 +1,16 @@
 //! Background thread that talks to the keyboard, so the UI never blocks.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ak820::device::Connection;
 use ak820::lighting::Lighting;
-use ak820::profile::{self, KeyColors, Profile};
+use ak820::profile::{self, KeyColors, Profile, Screen};
 use ak820::protocol::SystemSettings;
-use ak820::screen::Frame;
 use ak820::{actions, Error, Keyboard};
-use eframe::egui;
 
 use crate::i18n::t;
+use crate::tray::Wake;
 
 pub enum Op {
     Lighting(Lighting),
@@ -20,7 +18,7 @@ pub enum Op {
     Keymap(Profile),
     Clock,
     System(SystemSettings),
-    Screen(Arc<Vec<Frame>>),
+    Screen(Screen),
     Apply(Profile),
     Demo(u64),
     Battery,
@@ -56,13 +54,13 @@ pub enum Msg {
 
 struct Worker {
     tx: Sender<Msg>,
-    ctx: egui::Context,
+    wake: Wake,
     last: Option<Status>,
 }
 
-pub fn spawn(rx: Receiver<Job>, tx: Sender<Msg>, ctx: egui::Context) {
+pub fn spawn(rx: Receiver<Job>, tx: Sender<Msg>, wake: Wake) {
     std::thread::spawn(move || {
-        let mut w = Worker { tx, ctx, last: None };
+        let mut w = Worker { tx, wake, last: None };
         w.probe();
         loop {
             match rx.recv_timeout(Duration::from_millis(1500)) {
@@ -93,7 +91,7 @@ fn status_of(r: &Result<Keyboard, Error>) -> Status {
 impl Worker {
     fn send(&self, m: Msg) {
         let _ = self.tx.send(m);
-        self.ctx.request_repaint();
+        (self.wake)();
     }
 
     fn log(&self, text: impl Into<String>) {
@@ -140,7 +138,10 @@ impl Worker {
             Op::Keymap(p) => actions::send_keymap(&kb, &p),
             Op::Clock => kb.set_clock(&actions::now()),
             Op::System(s) => kb.set_system(&s),
-            Op::Screen(frames) => actions::upload_frames(&kb, &frames, progress),
+            Op::Screen(screen) => {
+                let frames = actions::load_frames(&screen.image, screen.fit, screen.crop)?;
+                actions::upload_frames(&kb, &frames, progress)
+            }
             Op::Apply(p) => actions::apply(&kb, &p, &mut |m| self.log(format!("  {m}")), &mut |i, n| progress(i, n)),
             Op::Demo(secs) => {
                 let grid = actions::key_grid();

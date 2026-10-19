@@ -114,6 +114,10 @@ tastiera a quel profilo con un clic, anche dal menu della tray.
 Le preferenze sono salvate in `gui.toml`, nella stessa cartella del file di stato. L'app gira in
 una sola copia: se la riapri, si mostra la finestra già aperta.
 
+Su Linux la finestra si apre tramite XWayland quando è disponibile, perché winit (la libreria
+delle finestre) non supporta il drag & drop di file su Wayland nativo; `AK820_WAYLAND=1` mantiene
+Wayland nativo (in quel caso usa "Scegli immagine" o incolla un file copiato con Ctrl+V).
+
 ## Riga di comando
 
 ```bash

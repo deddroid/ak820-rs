@@ -111,6 +111,10 @@ to a profile in one click, also from the tray menu.
 These preferences are saved in `gui.toml`, in the same config folder as the state file. Only
 one copy of the app runs at a time: launching it again shows the existing window.
 
+On Linux the window opens through XWayland when available, because winit (the windowing
+library) has no file drag & drop on native Wayland; `AK820_WAYLAND=1` keeps native Wayland
+(then use the file picker or paste a copied file with Ctrl+V).
+
 ## Command line
 
 ```bash

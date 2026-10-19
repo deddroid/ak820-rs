@@ -40,8 +40,27 @@ const WARN: Color32 = Color32::from_rgb(240, 180, 60);
 const ERR: Color32 = Color32::from_rgb(235, 90, 90);
 const KEYCAP: Color32 = Color32::from_rgb(48, 48, 60);
 
+/// winit has no file drag & drop on Wayland, so on Linux the window goes through
+/// XWayland when it is available. `AK820_WAYLAND=1` keeps native Wayland.
+#[cfg(target_os = "linux")]
+fn event_loop_hook() -> Option<eframe::EventLoopBuilderHook> {
+    let x11 = std::env::var_os("DISPLAY").is_some() && std::env::var_os("AK820_WAYLAND").is_none();
+    x11.then(|| -> eframe::EventLoopBuilderHook {
+        Box::new(|builder| {
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            builder.with_x11();
+        })
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn event_loop_hook() -> Option<eframe::EventLoopBuilderHook> {
+    None
+}
+
 fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
+        event_loop_builder: event_loop_hook(),
         viewport: egui::ViewportBuilder::default()
             .with_title("AK820 Pro")
             .with_app_id("ak820")
@@ -1241,14 +1260,10 @@ impl App {
             ui,
             t("Screen", "Display"),
             t(
-                "Image or animated GIF on the 128×128 screen. Drop a file here or pick one.",
-                "Immagine o GIF animata sul display 128×128. Trascina un file qui o sceglilo.",
+                "Image or animated GIF on the 128×128 screen. Drop a file on the window, paste it (Ctrl+V) or pick one.",
+                "Immagine o GIF animata sul display 128×128. Trascina un file nella finestra, incollalo (Ctrl+V) o sceglilo.",
             ),
         );
-        let dropped = ui.ctx().input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone()));
-        if let Some(p) = dropped {
-            self.load_screen(p, Crop::default());
-        }
         ui.columns(2, |cols| {
             card(&mut cols[0], t("Preview", "Anteprima"), |ui| {
                 self.screen_preview(ui);
@@ -1847,6 +1862,38 @@ impl App {
         });
     }
 
+    /// Images dropped on the window (any tab), or a copied file pasted on the Screen tab.
+    fn image_drop(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone()));
+        let pasted = if self.tab == Tab::Screen && ctx.memory(|m| m.focused().is_none()) {
+            ctx.input(|i| {
+                i.events.iter().find_map(|e| match e {
+                    egui::Event::Paste(text) => text.lines().find_map(path_from_text),
+                    _ => None,
+                })
+            })
+        } else {
+            None
+        };
+        if let Some(path) = dropped.or(pasted) {
+            self.tab = Tab::Screen;
+            self.load_screen(path, Crop::default());
+        }
+        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+            let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop")));
+            let rect = ctx.screen_rect();
+            painter.rect_filled(rect, CornerRadius::ZERO, Color32::from_black_alpha(170));
+            painter.rect_stroke(rect.shrink(16.0), CornerRadius::same(16), Stroke::new(3.0_f32, ACCENT), egui::StrokeKind::Inside);
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                t("Drop the image for the screen", "Rilascia l'immagine per il display"),
+                FontId::proportional(26.0),
+                Color32::WHITE,
+            );
+        }
+    }
+
     fn screenshots(&mut self, ctx: &egui::Context) {
         let Some(shots) = self.shots.as_mut().filter(|s| s.index < TABS.len()) else { return };
         let saved = ctx.input(|i| {
@@ -1898,6 +1945,7 @@ impl eframe::App for App {
             }
         }
         self.handle_messages();
+        self.image_drop(ctx);
         self.screenshots(ctx);
         self.nav(ctx);
         self.status_bar(ctx);
@@ -2024,6 +2072,29 @@ fn name_combo(ui: &mut Ui, id: &str, value: &mut String, names: &[&str], allow_e
         });
 }
 
+/// A pasted line naming an existing image file: a path or a `file://` URI.
+fn path_from_text(line: &str) -> Option<PathBuf> {
+    let line = line.trim();
+    let raw = line.strip_prefix("file://").unwrap_or(line);
+    // Percent-decode URIs (spaces and accented letters in file names).
+    let mut bytes = Vec::with_capacity(raw.len());
+    let mut it = raw.bytes();
+    while let Some(b) = it.next() {
+        if b == b'%' {
+            let hex: Vec<u8> = it.clone().take(2).collect();
+            if let Some(v) = std::str::from_utf8(&hex).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                bytes.push(v);
+                it.nth(1);
+                continue;
+            }
+        }
+        bytes.push(b);
+    }
+    let path = PathBuf::from(String::from_utf8(bytes).ok()?);
+    let ext = path.extension()?.to_string_lossy().to_lowercase();
+    (["png", "jpg", "jpeg", "gif", "bmp", "webp"].contains(&ext.as_str()) && path.is_file()).then_some(path)
+}
+
 fn profile_summary(p: &Profile) -> String {
     let mut parts: Vec<String> = Vec::new();
     match (&p.lighting, &p.key_colors) {
@@ -2063,5 +2134,24 @@ fn rename_macro_refs(km: &mut Keymap, old: &str, new: &str) {
         if *t == from {
             *t = to.clone();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pasted_paths() {
+        let dir = std::env::temp_dir().join(format!("ak820 paste {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let img = dir.join("gatto è.png");
+        std::fs::write(&img, b"x").unwrap();
+        let uri = format!("file://{}", img.display()).replace(' ', "%20").replace('è', "%C3%A8");
+        assert_eq!(path_from_text(&uri), Some(img.clone()));
+        assert_eq!(path_from_text(&format!("  {}  ", img.display())), Some(img.clone()));
+        assert_eq!(path_from_text("hello"), None);
+        assert_eq!(path_from_text(&dir.join("missing.png").display().to_string()), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

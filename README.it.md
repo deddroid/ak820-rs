@@ -20,11 +20,11 @@ programmi in esecuzione.
 Disponibile sia come **interfaccia grafica** (`ak820-gui`) sia da **riga di comando** (`ak820`):
 condividono la stessa configurazione salvata.
 
-![Rimappatura tasti](docs/screenshots/3-tasti.png)
+![Rimappatura tasti](docs/screenshots/3-keys.png)
 
 | Luci | Display |
 |---|---|
-| ![Luci](docs/screenshots/1-luci.png) | ![Display](docs/screenshots/5-display.png) |
+| ![Luci](docs/screenshots/1-lighting.png) | ![Display](docs/screenshots/5-screen.png) |
 
 ## Installazione
 
@@ -79,6 +79,11 @@ layer normale e Fn), **Macro** (editor di sequenze), **Display** (anteprima anim
 colori reali del display, trascina un'immagine o una GIF), **Sistema** (orologio, sospensione,
 Fn, antirimbalzo, batteria) e **Profili** (importa/esporta/reinvia, ripristino di fabbrica).
 La barra in basso mostra lo stato del collegamento e il registro delle operazioni.
+
+L'app è in italiano o in inglese: segue la lingua del sistema (`LANG`/`LC_ALL`/`LC_MESSAGES` su
+Linux, la lingua dell'utente su Windows) e si cambia dal selettore in fondo alla barra laterale.
+La scelta è salvata in `gui.toml`, nella stessa cartella di configurazione del file di stato;
+`AK820_GUI_LANG=en|it` forza una lingua per un singolo avvio.
 
 ## Riga di comando
 

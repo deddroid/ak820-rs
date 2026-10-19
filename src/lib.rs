@@ -4,6 +4,7 @@
 //! The protocol was consolidated from several community projects; see
 //! `docs/PROTOCOL.md` and the README for credits.
 
+pub mod actions;
 pub mod device;
 pub mod keys;
 pub mod lighting;
@@ -29,6 +30,9 @@ pub enum Error {
     Image(#[from] image::ImageError),
     #[error("{0}")]
     NotFound(String),
+    /// The keyboard is there but the OS denies access (Linux: missing udev rule).
+    #[error("{0}")]
+    Permission(String),
     #[error("unknown key '{0}' (see `ak820 keys`)")]
     UnknownKey(String),
     #[error("{0}")]

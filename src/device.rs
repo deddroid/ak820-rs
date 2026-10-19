@@ -77,8 +77,8 @@ fn find<'a>(api: &'a HidApi, pids: &[u16], usage_page: u16, interface: i32) -> O
 }
 
 fn open_error(e: hidapi::HidError) -> Error {
-    if cfg!(target_os = "linux") {
-        Error::NotFound(format!(
+    if cfg!(target_os = "linux") && e.to_string().contains("Permission denied") {
+        Error::Permission(format!(
             "cannot open the keyboard ({e}).\n\
              On Linux install the udev rule once:  sudo cp udev/70-ajazz-ak820.rules /etc/udev/rules.d/ \
              && sudo udevadm control --reload && sudo udevadm trigger\n\

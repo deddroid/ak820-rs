@@ -15,17 +15,33 @@ Un unico programma in Rust per configurare la AJAZZ AK820 Pro senza il software 
 Le modifiche sono salvate nella tastiera stessa: valgono su qualsiasi computer, senza
 programmi in esecuzione.
 
+Disponibile sia come **interfaccia grafica** (`ak820-gui`) sia da **riga di comando** (`ak820`):
+condividono la stessa configurazione salvata.
+
+![Rimappatura tasti](docs/screenshots/3-tasti.png)
+
+| Luci | Display |
+|---|---|
+| ![Luci](docs/screenshots/1-luci.png) | ![Display](docs/screenshots/5-display.png) |
+
 ## Installazione
 
 ```bash
 cargo build --release
 ```
 
-Il binario è `target/release/ak820` (`ak820.exe` su Windows).
+Produce due eseguibili in `target/release/`:
+
+- `ak820-gui` (`ak820-gui.exe` su Windows): interfaccia grafica
+- `ak820` (`ak820.exe`): riga di comando
+
+Per compilare solo la CLI, senza dipendenze grafiche: `cargo build --release --no-default-features`.
 
 ### Linux: permessi
 
-I device `hidraw` sono accessibili solo a root. Installa una volta la regola udev:
+I device `hidraw` sono accessibili solo a root. Dalla GUI basta premere **Concedi accesso**
+nella barra in basso (chiede la password di amministratore e installa la regola udev).
+In alternativa, da terminale:
 
 ```bash
 sudo cp udev/70-ajazz-ak820.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
@@ -38,7 +54,20 @@ poi scollega e ricollega la tastiera. Serve `libudev` (presente su tutte le dist
 Nessun driver richiesto: compila con `cargo build --release` (toolchain MSVC) e usa
 `ak820.exe`. Chiudi il software ufficiale AJAZZ se è aperto.
 
-## Uso
+## Interfaccia grafica
+
+```bash
+ak820-gui
+```
+
+Schede: **Luci** (effetti e parametri), **Colori tasti** (dipingi i tasti sulla tastiera
+disegnata, clic destro per cancellare), **Tasti** (clicca un tasto e scegli cosa deve fare,
+layer normale e Fn), **Macro** (editor di sequenze), **Display** (anteprima animata con i
+colori reali del display, trascina un'immagine o una GIF), **Sistema** (orologio, sospensione,
+Fn, antirimbalzo, batteria) e **Profili** (importa/esporta/reinvia, ripristino di fabbrica).
+La barra in basso mostra lo stato del collegamento e il registro delle operazioni.
+
+## Riga di comando
 
 ```bash
 ak820 list                                   # interfacce HID trovate

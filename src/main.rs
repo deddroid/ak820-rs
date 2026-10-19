@@ -1,18 +1,18 @@
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use chrono::{Datelike, Local, NaiveDateTime, Timelike};
+use chrono::NaiveDateTime;
 use clap::{Parser, Subcommand};
 
 use ak820::device::{list_interfaces, Connection};
 use ak820::lighting::{Direction, Lighting, Mode};
 use ak820::macros::{MacroDef, MacroMode};
 use ak820::profile::{self, FnMode, KeyColors, Keymap, Profile, Screen, SleepTime, System};
-use ak820::protocol::{self, ClockTime};
+use ak820::protocol;
 use ak820::screen::{self, Fit};
-use ak820::{keys, Keyboard, Rgb};
+use ak820::{actions, keys, Keyboard, Rgb};
 
 #[derive(Parser)]
 #[command(name = "ak820", version, about = "Configure the AJAZZ AK820 Pro keyboard (Linux & Windows)")]
@@ -182,86 +182,29 @@ fn save_state(state: &Profile) -> Result<()> {
     state.save(&profile::state_path()).context("cannot save the state file")
 }
 
-fn now() -> ClockTime {
-    to_clock(Local::now().naive_local())
-}
-
-fn to_clock(t: NaiveDateTime) -> ClockTime {
-    ClockTime {
-        year: t.year() as u16,
-        month: t.month() as u8,
-        day: t.day() as u8,
-        hour: t.hour() as u8,
-        minute: t.minute() as u8,
-        second: t.second() as u8,
-        weekday: t.weekday().num_days_from_sunday() as u8,
-    }
-}
-
 fn send_keymap(kb: &Keyboard, state: &Profile) -> Result<()> {
-    let km = state.keymap.clone().unwrap_or_default().compile(&state.macros)?;
-    kb.set_keymaps(&km.normal, &km.fn_layer, &km.macros)?;
-    Ok(())
+    Ok(actions::send_keymap(kb, state)?)
 }
 
 fn send_colors(kb: &Keyboard, c: &KeyColors) -> Result<()> {
-    kb.set_key_colors(c.brightness, &c.resolve()?)?;
-    Ok(())
-}
-
-fn load_frames(file: &Path, fit: Fit) -> Result<Vec<screen::Frame>> {
-    if !file.is_file() {
-        bail!("image {} not found", file.display());
-    }
-    screen::load(file, fit).with_context(|| format!("cannot load {}", file.display()))
+    Ok(actions::send_key_colors(kb, c)?)
 }
 
 fn upload_screen(kb: &Keyboard, frames: &[screen::Frame]) -> Result<()> {
-    let blocks = screen::blocks(frames);
-    eprintln!("Uploading {} frame(s), {} blocks...", frames.len(), blocks.len());
-    kb.upload_screen(&blocks, |i, n| {
-        eprint!("\r  {:3}%", i * 100 / n);
-        let _ = std::io::stderr().flush();
-    })?;
+    eprintln!("Uploading {} frame(s)...", frames.len());
+    actions::upload_frames(kb, frames, progress)?;
     eprintln!();
     Ok(())
 }
 
-/// Send every section of `p` that is set.
+fn progress(i: usize, n: usize) {
+    eprint!("\r  {:3}%", i * 100 / n);
+    let _ = std::io::stderr().flush();
+}
+
 fn apply(kb: &Keyboard, p: &Profile) -> Result<()> {
-    if let Some(s) = &p.system {
-        eprintln!("- system settings");
-        kb.set_system(&s.settings()?)?;
-    }
-    if p.keymap.is_some() {
-        eprintln!("- key remapping and macros");
-        send_keymap(kb, p)?;
-    }
-    let custom = p.lighting.as_ref().is_none_or(|l| l.mode == Mode::Custom);
-    match (&p.key_colors, &p.lighting) {
-        (Some(c), _) if custom => {
-            eprintln!("- per-key colors");
-            if kb.connection() == Connection::Wired {
-                send_colors(kb, c)?;
-            } else {
-                eprintln!("  skipped: per-key colors need the USB cable");
-            }
-        }
-        (_, Some(l)) => {
-            eprintln!("- lighting: {}", l.mode.name());
-            kb.set_lighting(l)?;
-        }
-        _ => {}
-    }
-    // The clock switches the screen back to the clock face, so it goes before the image.
-    if p.sync_clock == Some(true) {
-        eprintln!("- clock");
-        kb.set_clock(&now())?;
-    }
-    if let Some(s) = &p.screen {
-        eprintln!("- screen: {}", s.image.display());
-        upload_screen(kb, &load_frames(&s.image, s.fit)?)?;
-    }
+    actions::apply(kb, p, &mut |m| eprintln!("- {m}"), &mut progress)?;
+    eprintln!();
     Ok(())
 }
 
@@ -279,43 +222,6 @@ fn print_keymap(state: &Profile) {
     if !state.macros.is_empty() {
         println!("Macros: {}", state.macros.keys().cloned().collect::<Vec<_>>().join(", "));
     }
-}
-
-/// `(light index, x 0..1, row 0..1)` for the live demo.
-fn key_grid() -> Vec<(u8, f32, f32)> {
-    const ROW_ENDS: &[&str] = &["delete", "home", "pgup", "pgdn", "up", "right"];
-    let mut rows: Vec<Vec<u8>> = vec![vec![]];
-    for (name, idx) in keys::all_lights() {
-        rows.last_mut().unwrap().push(idx);
-        if ROW_ENDS.contains(&name) {
-            rows.push(vec![]);
-        }
-    }
-    rows.retain(|r| !r.is_empty());
-    let nrows = rows.len();
-    rows.iter()
-        .enumerate()
-        .flat_map(|(y, r)| {
-            let n = r.len();
-            r.iter().enumerate().map(move |(x, &i)| {
-                (i, x as f32 / (n - 1) as f32, y as f32 / (nrows - 1) as f32)
-            })
-        })
-        .collect()
-}
-
-fn hsv(h: f32) -> Rgb {
-    let h = h.rem_euclid(1.0) * 6.0;
-    let x = 1.0 - (h % 2.0 - 1.0).abs();
-    let (r, g, b) = match h as u32 {
-        0 => (1.0, x, 0.0),
-        1 => (x, 1.0, 0.0),
-        2 => (0.0, 1.0, x),
-        3 => (0.0, x, 1.0),
-        4 => (x, 0.0, 1.0),
-        _ => (1.0, 0.0, x),
-    };
-    Rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
 fn print_keys() {
@@ -415,12 +321,12 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Clock { at } => {
             let t = match at {
-                Some(s) => to_clock(
+                Some(s) => actions::to_clock(
                     NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
                         .or_else(|_| NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M"))
                         .context("use --at \"YYYY-MM-DD HH:MM[:SS]\"")?,
                 ),
-                None => now(),
+                None => actions::now(),
             };
             open()?.set_clock(&t)?;
             println!(
@@ -429,7 +335,7 @@ fn run(cli: Cli) -> Result<()> {
             );
         }
         Command::Screen { file, fit } => {
-            let frames = load_frames(&file, fit)?;
+            let frames = actions::load_frames(&file, fit)?;
             let kb = open()?;
             upload_screen(&kb, &frames)?;
             let image = std::fs::canonicalize(&file).unwrap_or(file);
@@ -574,13 +480,11 @@ fn run(cli: Cli) -> Result<()> {
         Command::Keys => print_keys(),
         Command::Demo { seconds } => {
             let kb = open()?;
-            let grid = key_grid();
+            let grid = actions::key_grid();
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(seconds) {
                 let t = start.elapsed().as_secs_f32();
-                let colors: Vec<(u8, Rgb)> =
-                    grid.iter().map(|&(i, x, y)| (i, hsv(x * 0.8 + y * 0.2 - t * 0.3))).collect();
-                kb.live_frame(&colors)?;
+                kb.live_frame(&actions::rainbow_frame(&grid, t))?;
             }
             println!("Done: the keyboard returns to its saved effect by itself.");
         }

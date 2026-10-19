@@ -2,6 +2,16 @@
 
 [English](README.md) · **Italiano**
 
+## Download
+
+Programmi già pronti, senza installare Rust: scarica l'ultima versione dalla
+[**pagina Releases**](https://github.com/deddroid/ak820-rs/releases/latest).
+
+- **Windows**: scarica `ak820-…-windows-x86_64.zip`, estrailo e avvia `ak820-gui.exe`.
+- **Linux** (x86_64): scarica `ak820-…-linux-x86_64.tar.gz`, estrailo e lancia
+  `./install.sh --udev` dentro la cartella (installa in `~/.local` e aggiunge la regola udev;
+  vedi [Linux: permessi](#linux-permessi)).
+
 Un unico programma in Rust per configurare la AJAZZ AK820 Pro senza il software ufficiale:
 
 - **Luci**: tutti i 20 effetti, colore, arcobaleno, luminosità, velocità, direzione (gli effetti che si muovono hanno due direzioni)
@@ -28,7 +38,7 @@ condividono la stessa configurazione salvata.
 
 ## Installazione
 
-Serve [Rust](https://rustup.rs). Su Linux, il modo più semplice:
+Per compilare dai sorgenti serve [Rust](https://rustup.rs). Su Linux, il modo più semplice:
 
 ```bash
 ./install.sh            # compila e installa in ~/.local (aggiunge "AK820 Pro" al menu applicazioni)

@@ -1,5 +1,7 @@
 #!/bin/sh
-# Build and install ak820 for the current user (no root needed):
+# Build and install ak820 for the current user (no root needed).
+# Run from the source tree it builds with cargo; run from an unpacked release archive
+# (ak820 and ak820-gui next to this script) it installs the prebuilt binaries.
 #   binaries  -> ~/.local/bin
 #   launcher  -> ~/.local/share/applications/ak820.desktop
 #   icons     -> ~/.local/share/icons/hicolor/*/apps/ak820.png
@@ -30,14 +32,20 @@ if [ "${1:-}" = "--uninstall" ]; then
     exit 0
 fi
 
-cargo build --release
+if [ -f Cargo.toml ]; then
+    cargo build --release
+    SRC=target/release
+else
+    SRC=.
+fi
 
-install -Dm755 target/release/ak820 "$BIN/ak820"
-install -Dm755 target/release/ak820-gui "$BIN/ak820-gui"
+install -Dm755 "$SRC/ak820" "$BIN/ak820"
+install -Dm755 "$SRC/ak820-gui" "$BIN/ak820-gui"
 for s in $SIZES; do
     install -Dm644 "assets/icon-$s.png" "$ICONS/${s}x${s}/apps/ak820.png"
 done
 install -Dm644 assets/icon.png "$ICONS/512x512/apps/ak820.png"
+mkdir -p "$APPS"
 sed "s|^Exec=.*|Exec=$BIN/ak820-gui|" packaging/linux/ak820.desktop > "$APPS/ak820.desktop.tmp"
 install -Dm644 "$APPS/ak820.desktop.tmp" "$APPS/ak820.desktop"
 rm -f "$APPS/ak820.desktop.tmp"

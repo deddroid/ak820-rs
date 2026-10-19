@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # Build and package without publishing, to test changes to this workflow.
+  pull_request:
+    paths: [.github/workflows/release.yml, .github/scripts/**, install.sh, build.rs]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Tag name in archive names; "dev" for test builds (PR refs contain slashes).
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'dev' }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - run: cargo build --release --locked
+      - name: Check the icon is embedded
+        run: python .github/scripts/check_icon.py target/release/ak820-gui.exe target/release/ak820.exe
+      - name: Package
+        shell: pwsh
+        run: |
+          $dir = "ak820-$env:VERSION-windows-x86_64"
+          New-Item -ItemType Directory $dir | Out-Null
+          Copy-Item target/release/ak820-gui.exe, target/release/ak820.exe, README.md, README.it.md $dir
+          Compress-Archive -Path $dir -DestinationPath "$dir.zip"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows
+          path: ak820-*.zip
+          if-no-files-found: error
+
+  linux:
+    # Oldest supported runner, so the binaries work on older glibc versions too.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libgtk-3-dev libxkbcommon-dev libwayland-dev
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - run: cargo build --release --locked
+      - name: Package
+        run: |
+          dir="ak820-$VERSION-linux-x86_64"
+          mkdir -p "$dir/assets" "$dir/packaging/linux" "$dir/udev"
+          cp target/release/ak820 target/release/ak820-gui install.sh README.md README.it.md "$dir/"
+          cp assets/icon.png assets/icon-*.png "$dir/assets/"
+          cp packaging/linux/ak820.desktop "$dir/packaging/linux/"
+          cp udev/70-ajazz-ak820.rules "$dir/udev/"
+          tar -czf "$dir.tar.gz" "$dir"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux
+          path: ak820-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" ak820-*.zip ak820-*.tar.gz --clobber

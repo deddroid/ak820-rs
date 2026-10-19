@@ -2,6 +2,16 @@
 
 **English** · [Italiano](README.it.md)
 
+## Download
+
+Ready-made binaries, no Rust needed: grab the latest version from the
+[**Releases page**](https://github.com/deddroid/ak820-rs/releases/latest).
+
+- **Windows**: download `ak820-…-windows-x86_64.zip`, extract it and run `ak820-gui.exe`.
+- **Linux** (x86_64): download `ak820-…-linux-x86_64.tar.gz`, extract it and run
+  `./install.sh --udev` inside the folder (installs into `~/.local` and adds the udev rule;
+  see [Linux: permissions](#linux-permissions)).
+
 A single Rust program to configure the AJAZZ AK820 Pro keyboard without the official software:
 
 - **Lighting**: all 20 effects, color, rainbow, brightness, speed, direction (moving effects have two directions)
@@ -29,7 +39,7 @@ they share the same saved configuration.
 
 ## Installation
 
-You need [Rust](https://rustup.rs). On Linux, the easiest way:
+To build from source you need [Rust](https://rustup.rs). On Linux, the easiest way:
 
 ```bash
 ./install.sh            # build and install into ~/.local (adds "AK820 Pro" to the app menu)

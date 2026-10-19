@@ -38,10 +38,19 @@ fn main() -> eframe::Result {
             .with_title("AK820 Pro")
             .with_app_id("ak820")
             .with_inner_size([1180.0, 780.0])
-            .with_min_inner_size([900.0, 620.0]),
+            .with_min_inner_size([900.0, 620.0])
+            .with_icon(app_icon()),
         ..Default::default()
     };
     eframe::run_native("AK820 Pro", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+}
+
+fn app_icon() -> egui::IconData {
+    let img = image::load_from_memory(include_bytes!("../../assets/icon-256.png"))
+        .expect("embedded icon")
+        .to_rgba8();
+    let (width, height) = img.dimensions();
+    egui::IconData { rgba: img.into_raw(), width, height }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -91,8 +100,13 @@ fn mode_label(m: Mode) -> &'static str {
     }
 }
 
-fn has_direction(m: Mode) -> bool {
-    matches!(m, Mode::Scrolling | Mode::Rolling | Mode::Rotating | Mode::Flowing | Mode::Tilt)
+fn direction_label(d: Direction) -> &'static str {
+    match d {
+        Direction::Left => "← Verso sinistra",
+        Direction::Right => "Verso destra →",
+        Direction::Up => "↑ Verso l'alto",
+        Direction::Down => "↓ Verso il basso",
+    }
 }
 
 fn color32(c: Rgb) -> Color32 {
@@ -457,18 +471,19 @@ impl App {
                     ui.add_enabled(self.light.mode != Mode::Static, Slider::new(&mut self.light.speed, 0..=5));
                     ui.end_row();
                     ui.label("Direzione");
-                    ui.add_enabled_ui(has_direction(self.light.mode), |ui| {
-                        ui.horizontal(|ui| {
-                            for (d, l) in [
-                                (Direction::Left, "← Sinistra"),
-                                (Direction::Right, "Destra →"),
-                                (Direction::Up, "↑ Su"),
-                                (Direction::Down, "↓ Giù"),
-                            ] {
-                                ui.selectable_value(&mut self.light.direction, d, l);
-                            }
-                        });
-                    });
+                    match self.light.mode.direction_axis() {
+                        Some(axis) => {
+                            self.light.direction = self.light.direction.on_axis(axis);
+                            ui.horizontal(|ui| {
+                                for d in axis.directions() {
+                                    ui.selectable_value(&mut self.light.direction, d, direction_label(d));
+                                }
+                            });
+                        }
+                        None => {
+                            ui.label(RichText::new("questo effetto non ha una direzione").weak());
+                        }
+                    }
                     ui.end_row();
                 });
             });

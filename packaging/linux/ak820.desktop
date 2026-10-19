@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=AK820 Pro
+GenericName=Keyboard configurator
+GenericName[it]=Configuratore tastiera
+Comment=Configure lighting, keys, macros and screen of the AJAZZ AK820 Pro
+Comment[it]=Configura luci, tasti, macro e display della AJAZZ AK820 Pro
+Exec=ak820-gui
+Icon=ak820
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;ajazz;ak820;rgb;macro;
+StartupWMClass=ak820

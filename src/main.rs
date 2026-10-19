@@ -39,9 +39,9 @@ enum Command {
         brightness: u8,
         #[arg(short, long, default_value_t = 3, value_parser = clap::value_parser!(u8).range(0..=5))]
         speed: u8,
-        /// left, right, up, down
-        #[arg(short, long, default_value = "left", value_parser = parse_direction)]
-        direction: Direction,
+        /// right/left (rolling, rotating, flowing, tilt) or down/up (scrolling)
+        #[arg(short, long, value_parser = parse_direction)]
+        direction: Option<Direction>,
     },
     /// Static per-key colors, e.g. `ak820 colors --base 000020 w=red a=red s=red d=red`
     Colors {
@@ -275,6 +275,13 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Light { mode, color, rainbow, brightness, speed, direction } => {
             let mode = Mode::from_name(&mode).with_context(|| format!("unknown effect '{mode}' (see `ak820 keys`)"))?;
+            let direction = direction.unwrap_or_default();
+            if let Some(axis) = mode.direction_axis() {
+                if direction.on_axis(axis) != direction {
+                    let [a, b] = axis.directions();
+                    bail!("{} moves {a:?} or {b:?}", mode.name());
+                }
+            }
             let l = Lighting {
                 mode,
                 color: color.unwrap_or(Rgb(255, 255, 255)),

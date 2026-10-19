@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Cross-platform (Linux/Windows) configuration tool for the AJAZZ AK820 Pro keyboard: lighting, per-key colors, key remapping, macros, TFT screen and clock"
 readme = "README.md"
+build = "build.rs"
 
 [lib]
 name = "ak820"
@@ -34,6 +35,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 toml = "0.8"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [profile.release]
 lto = true

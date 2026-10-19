@@ -1,151 +1,169 @@
-# ak820 — configuratore AJAZZ AK820 Pro per Linux e Windows
+# ak820 — AJAZZ AK820 Pro configurator for Linux and Windows
 
-Un unico programma in Rust per configurare la AJAZZ AK820 Pro senza il software ufficiale:
+**English** · [Italiano](README.it.md)
 
-- **Luci**: tutti i 20 effetti, colore, arcobaleno, luminosità, velocità, direzione
-- **Colori per tasto** (salvati nella tastiera) e animazione live di prova
-- **Rimappatura tasti** su layer normale e Fn: tasti, scorciatoie, media, mouse, Multi-Key
-- **Macro** salvate nella tastiera (testo, combinazioni, pause, clic)
-- **Display** 128×128: immagini e GIF animate
-- **Orologio** del display sincronizzato col PC
-- **Impostazioni**: sleep, modalità Fn, antirimbalzo, blocco Win / Alt+F4 / Alt+Tab
-- Funziona via **cavo USB** e, per luci/tasti/macro/orologio/impostazioni, anche via **ricevitore 2.4 GHz**
-- **Profili TOML**: tutta la configurazione in un file, applicabile con un comando
+A single Rust program to configure the AJAZZ AK820 Pro keyboard without the official software:
 
-Le modifiche sono salvate nella tastiera stessa: valgono su qualsiasi computer, senza
-programmi in esecuzione.
+- **Lighting**: all 20 effects, color, rainbow, brightness, speed, direction (moving effects have two directions)
+- **Per-key colors** (saved in the keyboard) and a live test animation
+- **Key remapping** on the normal and Fn layers: keys, shortcuts, media, mouse, Multi-Key
+- **Macros** stored in the keyboard (text, key combos, delays, clicks)
+- **Screen** 128×128: still images and animated GIFs
+- **Clock** of the screen synced with the computer
+- **System settings**: sleep, Fn mode, debounce, blocking Win / Alt+F4 / Alt+Tab
+- Works over the **USB cable** and, for lighting/keys/macros/clock/settings, also through the **2.4 GHz receiver**
+- **TOML profiles**: the whole configuration in one file, applied with one command
 
-Disponibile sia come **interfaccia grafica** (`ak820-gui`) sia da **riga di comando** (`ak820`):
-condividono la stessa configurazione salvata.
+Changes are saved in the keyboard itself: they work on any computer, with nothing running.
 
-![Rimappatura tasti](docs/screenshots/3-tasti.png)
+Available both as a **graphical app** (`ak820-gui`) and as a **command-line tool** (`ak820`);
+they share the same saved configuration.
 
-| Luci | Display |
+![Key remapping](docs/screenshots/3-tasti.png)
+
+| Lighting | Screen |
 |---|---|
-| ![Luci](docs/screenshots/1-luci.png) | ![Display](docs/screenshots/5-display.png) |
+| ![Lighting](docs/screenshots/1-luci.png) | ![Screen](docs/screenshots/5-display.png) |
 
-## Installazione
+> The graphical app is currently in Italian; the CLI and the documentation are in English.
+
+## Installation
+
+You need [Rust](https://rustup.rs). On Linux, the easiest way:
+
+```bash
+./install.sh            # build and install into ~/.local (adds "AK820 Pro" to the app menu)
+./install.sh --udev     # same, plus the udev rule for permissions (asks for your password)
+./install.sh --uninstall
+```
+
+Or build by hand:
 
 ```bash
 cargo build --release
 ```
 
-Produce due eseguibili in `target/release/`:
+This produces two executables in `target/release/`:
 
-- `ak820-gui` (`ak820-gui.exe` su Windows): interfaccia grafica
-- `ak820` (`ak820.exe`): riga di comando
+- `ak820-gui` (`ak820-gui.exe` on Windows): graphical app
+- `ak820` (`ak820.exe`): command line
 
-Per compilare solo la CLI, senza dipendenze grafiche: `cargo build --release --no-default-features`.
+To build only the CLI, without GUI dependencies: `cargo build --release --no-default-features`.
 
-### Linux: permessi
+### Linux: permissions
 
-I device `hidraw` sono accessibili solo a root. Dalla GUI basta premere **Concedi accesso**
-nella barra in basso (chiede la password di amministratore e installa la regola udev).
-In alternativa, da terminale:
+`hidraw` devices are only accessible to root by default. In the GUI, press **Concedi accesso**
+("grant access") in the bottom bar: it asks for the administrator password and installs the
+udev rule. Or from a terminal:
 
 ```bash
 sudo cp udev/70-ajazz-ak820.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
 ```
 
-poi scollega e ricollega la tastiera. Serve `libudev` (presente su tutte le distro con systemd).
+then unplug and replug the keyboard. `libudev` is required (present on every systemd distro).
 
 ### Windows
 
-Nessun driver richiesto: compila con `cargo build --release` (toolchain MSVC) e usa
-`ak820.exe`. Chiudi il software ufficiale AJAZZ se è aperto.
+No driver needed: build with `cargo build --release` (MSVC toolchain) and run
+`ak820-gui.exe` (the icon is embedded in the executable). Close the official AJAZZ software
+if it is open.
 
-## Interfaccia grafica
+## Graphical app
 
 ```bash
 ak820-gui
 ```
 
-Schede: **Luci** (effetti e parametri), **Colori tasti** (dipingi i tasti sulla tastiera
-disegnata, clic destro per cancellare), **Tasti** (clicca un tasto e scegli cosa deve fare,
-layer normale e Fn), **Macro** (editor di sequenze), **Display** (anteprima animata con i
-colori reali del display, trascina un'immagine o una GIF), **Sistema** (orologio, sospensione,
-Fn, antirimbalzo, batteria) e **Profili** (importa/esporta/reinvia, ripristino di fabbrica).
-La barra in basso mostra lo stato del collegamento e il registro delle operazioni.
+Tabs: **Luci** (lighting effects and parameters), **Colori tasti** (paint keys on the drawn
+keyboard, right-click to clear), **Tasti** (click a key and choose what it does, normal and Fn
+layer), **Macro** (sequence editor), **Display** (animated preview with the screen's real
+colors; drop an image or GIF), **Sistema** (clock, sleep, Fn, debounce, battery) and
+**Profili** (import/export/resend, factory reset). The bottom bar shows the connection status
+and the operation log.
 
-## Riga di comando
+## Command line
 
 ```bash
-ak820 list                                   # interfacce HID trovate
-ak820 keys                                   # nomi dei tasti, target ed effetti
+ak820 list                                   # HID interfaces found
+ak820 keys                                   # key names, remap targets and effects
 
-ak820 light rolling --rainbow -b 5 -s 3      # effetto onda arcobaleno
-ak820 light static -c ff6600 -b 4            # colore fisso
+ak820 light rolling --rainbow -b 5 -s 3      # rainbow wave
+ak820 light rolling -c 00aaff -d left        # wave moving left
+ak820 light static -c ff6600 -b 4            # solid color
 ak820 light off
 
-ak820 colors --base 000020 w=red a=red s=red d=red   # colori per tasto
-ak820 demo --seconds 10                      # animazione live (non salvata)
+ak820 colors --base 000020 w=red a=red s=red d=red   # per-key colors
+ak820 demo --seconds 10                      # live animation (not saved)
 
-ak820 clock                                  # sincronizza l'orologio
-ak820 screen gatto.gif --fit crop            # immagine/GIF sul display
+ak820 clock                                  # sync the clock
+ak820 screen cat.gif --fit crop              # image/GIF on the screen
 
 ak820 system --sleep 30m --fn-mode hold --response 2 --block-win off
 
-ak820 remap capslock=ctrl pgdn=end           # rimappa
+ak820 remap capslock=ctrl pgdn=end           # remap
 ak820 remap --fn left=prev right=next down=play
-ak820 remap delete=text:ciao                 # macro che scrive "ciao"
-ak820 macro set copia "tap:ctrl+c" "delay:50" "tap:ctrl+v"
-ak820 remap insert=macro:copia
-ak820 remap pgdn=default                     # torna al tasto originale
-ak820 remap --reset                          # layer normale di fabbrica
-ak820 remap                                  # mostra le rimappature
+ak820 remap delete=text:hello                # macro typing "hello"
+ak820 macro set copy "tap:ctrl+c" "delay:50" "tap:ctrl+v"
+ak820 remap insert=macro:copy
+ak820 remap pgdn=default                     # back to the original key
+ak820 remap --reset                          # factory normal layer
+ak820 remap                                  # show remaps
 
-ak820 apply examples/profile.toml            # applica un profilo completo
-ak820 export mio-profilo.toml                # salva la configurazione corrente
-ak820 resend                                 # reinvia tutto (es. dopo un reset)
-ak820 reset --yes                            # impostazioni di fabbrica
-ak820 battery                                # batteria (solo via ricevitore 2.4G)
+ak820 apply examples/profile.toml            # apply a full profile
+ak820 export my-profile.toml                 # save the current configuration
+ak820 resend                                 # send everything again (e.g. after a reset)
+ak820 reset --yes                            # factory settings
+ak820 battery                                # battery (2.4G receiver only)
 ```
 
-### Target per la rimappatura
+Directions: `right`/`left` for rolling, rotating, flowing and tilt; `down`/`up` for scrolling.
+Other effects have no direction.
 
-| Target | Esempio |
+### Remap targets
+
+| Target | Example |
 |---|---|
-| tasto | `b`, `f13`, `home`, `printscreen` |
-| scorciatoia / modificatore | `ctrl+shift+t`, `win+e`, `ctrl` |
+| key | `b`, `f13`, `home`, `printscreen` |
+| shortcut / modifier | `ctrl+shift+t`, `win+e`, `ctrl` |
 | media | `play` `next` `prev` `stop` `mute` `vol+` `vol-` `bright+` `bright-` `calc` `mail` … |
 | mouse | `mouse:left` `mouse:right` `mouse:middle` `wheel:up` `wheel:down` |
-| più tasti insieme | `multi:a+s+d` |
-| macro | `text:Ciao!`, `macro:NOME` |
-| originale | `default` |
+| several keys at once | `multi:a+s+d` |
+| macro | `text:Hello!`, `macro:NAME` |
+| original | `default` |
 
-Passi delle macro: `text:…`, `tap:ctrl+c`, `down:KEY`, `up:KEY`, `delay:MS`,
-`click:left`, `mouse-down:left`, `mouse-up:left`. Modalità: `once`, `repeat` (con `--count`),
-`toggle`, `hold`, `step`. Il testo usa il layout USA (lettere accentate non supportate).
+Macro steps: `text:…`, `tap:ctrl+c`, `down:KEY`, `up:KEY`, `delay:MS`,
+`click:left`, `mouse-down:left`, `mouse-up:left`. Modes: `once`, `repeat` (with `--count`),
+`toggle`, `hold`, `step`. Text uses the US layout (no accented letters).
 
-### Stato
+### State
 
-La tastiera non permette di rileggere la configurazione, quindi `ak820` ricorda l'ultima
-inviata in `~/.config/ak820/state.toml` (Windows: `%APPDATA%\ak820\state.toml`) e ogni
-comando modifica solo la parte interessata. Si può cambiare il percorso con `AK820_STATE`.
-`AK820_DEBUG=1` stampa i pacchetti scambiati.
+The keyboard cannot be read back, so `ak820` remembers the last configuration sent in
+`~/.config/ak820/state.toml` (Windows: `%APPDATA%\ak820\state.toml`) and each command only
+changes its own part. Override the path with `AK820_STATE`. `AK820_DEBUG=1` prints the
+exchanged packets.
 
-## Limiti noti
+## Known limitations
 
-- Bluetooth: la tastiera non espone un'interfaccia di configurazione.
-- Colori per tasto e display: solo via cavo.
-- Nessuna lettura della configurazione dalla tastiera (limite del firmware).
-- Firmware che espongono `0xFF67` invece di `0xFF13` usano un altro protocollo, non supportato.
+- Bluetooth: the keyboard exposes no configuration interface.
+- Per-key colors and screen: USB cable only.
+- The configuration cannot be read from the keyboard (firmware limitation).
+- Firmwares exposing `0xFF67` instead of `0xFF13` use a different protocol, not supported.
 
-## Libreria
+## Library
 
-`src/lib.rs` espone tutto come crate (`ak820::Keyboard`, `ak820::Profile`, …) per chi
-vuole costruirci sopra una GUI o un demone. Il protocollo è documentato in
+`src/lib.rs` exposes everything as a crate (`ak820::Keyboard`, `ak820::Profile`, …) for
+anyone building another GUI or a daemon on top of it. The protocol is documented in
 [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
-## Crediti
+## Credits
 
-Codice scritto da [Claude](https://claude.com/claude-code) (Anthropic) insieme a
-[deddroid](https://github.com/deddroid), che lo ha testato sulla tastiera.
+Code written by [Claude](https://claude.com/claude-code) (Anthropic) together with
+[deddroid](https://github.com/deddroid), who tested it on the keyboard.
 
-Protocollo consolidato da questi progetti (grazie!):
+Protocol consolidated from these projects (thank you!):
 
-- [gha-projects/ak820-mac](https://github.com/gha-projects/ak820-mac) — analisi di `DeviceDriver.exe`: tasti, macro, sistema, ricevitore 2.4G, checksum
-- [hcristosm/ak820-linux](https://github.com/hcristosm/ak820-linux) — luci, colori per tasto, live, display, orologio su Linux
-- [gohv/EPOMAKER-Ajazz-AK820-Pro](https://github.com/gohv/EPOMAKER-Ajazz-AK820-Pro) e [TaxMachine/ajazz-keyboard-software-linux](https://github.com/TaxMachine/ajazz-keyboard-software-linux) — primo reverse engineering di luci, sleep, orologio, immagini
-- [Beattrey/ajazz-ak820-config](https://github.com/Beattrey/ajazz-ak820-config), [gusleig/ajazz-ak820-pro-mac](https://github.com/gusleig/ajazz-ak820-pro-mac) — note di protocollo
-- [wsclx/ak820pro-modder](https://github.com/wsclx/ak820pro-modder) — protocollo alternativo dei firmware `0xFF67`
+- [gha-projects/ak820-mac](https://github.com/gha-projects/ak820-mac) — analysis of `DeviceDriver.exe`: keys, macros, system, 2.4G receiver, checksum
+- [hcristosm/ak820-linux](https://github.com/hcristosm/ak820-linux) — lighting, per-key colors, live mode, screen, clock on Linux
+- [gohv/EPOMAKER-Ajazz-AK820-Pro](https://github.com/gohv/EPOMAKER-Ajazz-AK820-Pro) and [TaxMachine/ajazz-keyboard-software-linux](https://github.com/TaxMachine/ajazz-keyboard-software-linux) — first reverse engineering of lighting, sleep, clock, images
+- [Beattrey/ajazz-ak820-config](https://github.com/Beattrey/ajazz-ak820-config), [gusleig/ajazz-ak820-pro-mac](https://github.com/gusleig/ajazz-ak820-pro-mac) — protocol notes
+- [wsclx/ak820pro-modder](https://github.com/wsclx/ak820pro-modder) — alternative protocol of `0xFF67` firmwares

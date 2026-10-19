@@ -111,6 +111,18 @@ impl Mode {
         }
     }
 
+    /// Which way the effect can move, if it moves at all.
+    ///
+    /// The firmware only has two directions per effect: byte 0 (or 3) and
+    /// byte 1 (or 2). Verified on hardware for scrolling and rolling.
+    pub fn direction_axis(self) -> Option<Axis> {
+        match self {
+            Mode::Scrolling => Some(Axis::Vertical),
+            Mode::Rolling | Mode::Rotating | Mode::Flowing | Mode::Tilt => Some(Axis::Horizontal),
+            _ => None,
+        }
+    }
+
     pub fn from_name(s: &str) -> Option<Mode> {
         let s = s.to_ascii_lowercase().replace('_', "-");
         let s = match s.as_str() {
@@ -124,19 +136,53 @@ impl Mode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    /// left / right
+    Horizontal,
+    /// up / down
+    Vertical,
+}
+
+impl Axis {
+    /// The two directions available on this axis; the first is the firmware default (byte 0).
+    pub fn directions(self) -> [Direction; 2] {
+        match self {
+            Axis::Horizontal => [Direction::Right, Direction::Left],
+            Axis::Vertical => [Direction::Down, Direction::Up],
+        }
+    }
+}
+
+/// Direction of movement of the light. Byte 0 moves right (horizontal
+/// effects) or down (scrolling); byte 1 moves left or up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Direction {
-    #[default]
     Left,
     Down,
     Up,
+    #[default]
     Right,
 }
 
 impl Direction {
-    pub fn code(self) -> u8 {
-        self as u8
+    /// Wire value for this direction on `mode`.
+    pub fn code(self, mode: Mode) -> u8 {
+        match (mode.direction_axis(), self) {
+            (Some(Axis::Horizontal), Direction::Left) | (Some(Axis::Vertical), Direction::Up) => 1,
+            _ => 0,
+        }
+    }
+
+    /// The same direction if it fits `axis`, otherwise the axis default.
+    pub fn on_axis(self, axis: Axis) -> Direction {
+        let dirs = axis.directions();
+        if dirs.contains(&self) {
+            self
+        } else {
+            dirs[0]
+        }
     }
 
     pub fn from_name(s: &str) -> Option<Direction> {
@@ -185,7 +231,7 @@ impl Lighting {
             rainbow: false,
             brightness: MAX_LEVEL,
             speed: 3,
-            direction: Direction::Left,
+            direction: Direction::Right,
         }
     }
 
@@ -202,7 +248,7 @@ impl Lighting {
             p[8] = self.rainbow as u8;
             p[9] = self.brightness.min(MAX_LEVEL);
             p[10] = if self.mode == Mode::Static { 0 } else { self.speed.min(MAX_LEVEL) };
-            p[11] = self.direction.code();
+            p[11] = self.direction.code(self.mode);
         }
         p[14] = 0xAA;
         p[15] = 0x55;
@@ -222,11 +268,11 @@ mod tests {
             rainbow: false,
             brightness: 5,
             speed: 3,
-            direction: Direction::Up,
+            direction: Direction::Left,
         };
         let p = l.packet();
         assert_eq!(&p[..4], &[0x0B, 0x11, 0x22, 0x33]);
-        assert_eq!(&p[8..12], &[0, 5, 3, 2]);
+        assert_eq!(&p[8..12], &[0, 5, 3, 1]);
         assert_eq!(&p[14..16], &[0xAA, 0x55]);
     }
 
@@ -234,6 +280,18 @@ mod tests {
     fn static_is_breath_at_speed_zero() {
         let p = Lighting::new(Mode::Static).packet();
         assert_eq!((p[0], p[10]), (0x07, 0));
+    }
+
+    #[test]
+    fn two_directions_per_axis() {
+        // Verified on hardware: 0 = rightward / downward, 1 = leftward / upward.
+        assert_eq!(Direction::Right.code(Mode::Rolling), 0);
+        assert_eq!(Direction::Left.code(Mode::Rolling), 1);
+        assert_eq!(Direction::Down.code(Mode::Scrolling), 0);
+        assert_eq!(Direction::Up.code(Mode::Scrolling), 1);
+        assert_eq!(Direction::Up.code(Mode::Rolling), 0);
+        assert_eq!(Direction::Left.code(Mode::Breath), 0);
+        assert_eq!(Direction::Left.on_axis(Axis::Vertical), Direction::Down);
     }
 
     #[test]

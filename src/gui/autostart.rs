@@ -2,6 +2,7 @@
 //!
 //! Linux: an XDG autostart entry. Windows: the `Run` registry key of the user.
 
+#[cfg(not(windows))]
 use std::io;
 
 /// Command-line flag the autostart entry passes: start hidden in the tray.

@@ -12,6 +12,8 @@ use ak820::screen::Frame;
 use ak820::{actions, Error, Keyboard};
 use eframe::egui;
 
+use crate::i18n::t;
+
 pub enum Op {
     Lighting(Lighting),
     KeyColors(KeyColors),
@@ -114,10 +116,10 @@ impl Worker {
             Ok(()) => {
                 if let Some(state) = &job.new_state {
                     if let Err(e) = state.save(&profile::state_path()) {
-                        self.send(Msg::Log { text: format!("Impossibile salvare lo stato: {e}"), error: true });
+                        self.send(Msg::Log { text: format!("{}: {e}", t("Could not save the state", "Impossibile salvare lo stato")), error: true });
                     }
                 }
-                self.log(format!("{}: fatto", job.title));
+                self.log(format!("{}: {}", job.title, t("done", "fatto")));
             }
             Err(e) => self.send(Msg::Log { text: format!("{}: {e}", job.title), error: true }),
         }

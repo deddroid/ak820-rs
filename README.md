@@ -29,13 +29,11 @@ Changes are saved in the keyboard itself: they work on any computer, with nothin
 Available both as a **graphical app** (`ak820-gui`) and as a **command-line tool** (`ak820`);
 they share the same saved configuration.
 
-![Key remapping](docs/screenshots/3-tasti.png)
+![Key remapping](docs/screenshots/3-keys.png)
 
 | Lighting | Screen |
 |---|---|
-| ![Lighting](docs/screenshots/1-luci.png) | ![Screen](docs/screenshots/5-display.png) |
-
-> The graphical app is currently in Italian; the CLI and the documentation are in English.
+| ![Lighting](docs/screenshots/1-lighting.png) | ![Screen](docs/screenshots/5-screen.png) |
 
 ## Installation
 
@@ -84,12 +82,17 @@ if it is open.
 ak820-gui
 ```
 
-Tabs: **Luci** (lighting effects and parameters), **Colori tasti** (paint keys on the drawn
-keyboard, right-click to clear), **Tasti** (click a key and choose what it does, normal and Fn
-layer), **Macro** (sequence editor), **Display** (animated preview with the screen's real
-colors; drop an image or GIF), **Sistema** (clock, sleep, Fn, debounce, battery) and
-**Profili** (import/export/resend, factory reset). The bottom bar shows the connection status
+Tabs: **Lighting** (lighting effects and parameters), **Key colors** (paint keys on the drawn
+keyboard, right-click to clear), **Keys** (click a key and choose what it does, normal and Fn
+layer), **Macros** (sequence editor), **Screen** (animated preview with the screen's real
+colors; drop an image or GIF), **System** (clock, sleep, Fn, debounce, battery) and
+**Profiles** (import/export/resend, factory reset). The bottom bar shows the connection status
 and the operation log.
+
+The app is in English or Italian: it follows the system language (`LANG`/`LC_ALL`/`LC_MESSAGES`
+on Linux, the user locale on Windows) and can be switched from the selector at the bottom of the
+sidebar. The choice is saved in `gui.toml`, in the same config folder as the state file;
+`AK820_GUI_LANG=en|it` forces a language for one run.
 
 ## Command line
 

@@ -194,6 +194,10 @@ exchanged packets.
 anyone building another GUI or a daemon on top of it. The protocol is documented in
 [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
+## License
+
+[MIT](LICENSE).
+
 ## Credits
 
 Code written by [Claude](https://claude.com/claude-code) (Anthropic) together with

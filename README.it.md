@@ -197,6 +197,10 @@ comando modifica solo la parte interessata. Si può cambiare il percorso con `AK
 vuole costruirci sopra una GUI o un demone. Il protocollo è documentato in
 [docs/PROTOCOL.it.md](docs/PROTOCOL.it.md).
 
+## Licenza
+
+[MIT](LICENSE).
+
 ## Crediti
 
 Codice scritto da [Claude](https://claude.com/claude-code) (Anthropic) insieme a

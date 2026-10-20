@@ -1,8 +1,9 @@
 [package]
 name = "ak820"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Cross-platform (Linux/Windows) configuration tool for the AJAZZ AK820 Pro keyboard: lighting, per-key colors, key remapping, macros, TFT screen and clock"
+license = "MIT"
 readme = "README.md"
 build = "build.rs"
 

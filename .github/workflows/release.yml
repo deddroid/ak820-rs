@@ -29,7 +29,7 @@ jobs:
         run: |
           $dir = "ak820-$env:VERSION-windows-x86_64"
           New-Item -ItemType Directory $dir | Out-Null
-          Copy-Item target/release/ak820-gui.exe, target/release/ak820.exe, README.md, README.it.md $dir
+          Copy-Item target/release/ak820-gui.exe, target/release/ak820.exe, README.md, README.it.md, LICENSE $dir
           Compress-Archive -Path $dir -DestinationPath "$dir.zip"
       - uses: actions/upload-artifact@v7.0.2
         with:
@@ -54,7 +54,7 @@ jobs:
         run: |
           dir="ak820-$VERSION-linux-x86_64"
           mkdir -p "$dir/assets" "$dir/packaging/linux" "$dir/udev"
-          cp target/release/ak820 target/release/ak820-gui install.sh README.md README.it.md "$dir/"
+          cp target/release/ak820 target/release/ak820-gui install.sh README.md README.it.md LICENSE "$dir/"
           cp assets/icon.png assets/icon-*.png "$dir/assets/"
           cp packaging/linux/ak820.desktop "$dir/packaging/linux/"
           cp udev/70-ajazz-ak820.rules "$dir/udev/"

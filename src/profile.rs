@@ -286,6 +286,46 @@ impl Profile {
     }
 }
 
+impl Profile {
+    /// What has to be sent to go from `current` (the last applied
+    /// configuration) to this profile, as a full switch. `None` if nothing differs.
+    ///
+    /// Sections are compared as a whole: lighting and per-key colors together,
+    /// key maps and macros together, system settings, and the screen (image,
+    /// fit and crop). The clock is synced only when the screen changes, since
+    /// setting it brings the clock face back over an image.
+    pub fn switch_from(&self, current: &Profile) -> Option<Profile> {
+        let mut out = Profile::default();
+        let mut any = false;
+        if (&self.lighting, &self.key_colors) != (&current.lighting, &current.key_colors)
+            && (self.lighting.is_some() || self.key_colors.is_some())
+        {
+            out.lighting = self.lighting.clone();
+            out.key_colors = self.key_colors.clone();
+            any = true;
+        }
+        let keys = |p: &Profile| (p.keymap.clone().unwrap_or_default(), p.macros.clone());
+        if keys(self) != keys(current) {
+            out.keymap = Some(self.keymap.clone().unwrap_or_default());
+            out.macros = self.macros.clone();
+            any = true;
+        }
+        if self.system.is_some() && self.system != current.system {
+            out.system = self.system;
+            any = true;
+        }
+        let screen = |p: &Profile| {
+            p.screen.as_ref().map(|s| (std::fs::canonicalize(&s.image).unwrap_or(s.image.clone()), s.fit, s.crop))
+        };
+        if screen(self) != screen(current) {
+            out.screen = self.screen.clone();
+            out.sync_clock = Some(true);
+            any = true;
+        }
+        any.then_some(out)
+    }
+}
+
 // ---- named profiles --------------------------------------------------------------------
 
 /// Folder holding the named profiles (`NAME.toml` plus a copy of each screen image).
@@ -474,6 +514,37 @@ mod tests {
         delete_named("Work").unwrap();
         assert!(list_profiles().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn switch_sends_only_differences() {
+        let base = Profile {
+            lighting: Some(Lighting::factory()),
+            keymap: Some(Keymap::default()),
+            system: Some(System::default()),
+            ..Profile::default()
+        };
+        assert!(base.switch_from(&base).is_none());
+        // a missing keymap means the factory layout
+        let mut no_keys = base.clone();
+        no_keys.keymap = None;
+        assert!(no_keys.switch_from(&base).is_none());
+        // only the lighting changed
+        let mut red = base.clone();
+        red.lighting = Some(Lighting::new(crate::lighting::Mode::Static));
+        let d = red.switch_from(&base).unwrap();
+        assert!(d.lighting.is_some() && d.keymap.is_none() && d.system.is_none() && d.screen.is_none());
+        assert_eq!(d.sync_clock, None);
+        // a remap
+        let mut remap = base.clone();
+        remap.keymap.as_mut().unwrap().normal.insert("pgdn".into(), "end".into());
+        let d = remap.switch_from(&base).unwrap();
+        assert!(d.keymap.is_some() && d.lighting.is_none());
+        // removing the screen image brings the clock back
+        let mut with_screen = base.clone();
+        with_screen.screen = Some(Screen { image: "x.png".into(), fit: Fit::Crop, crop: Crop::default() });
+        let d = base.switch_from(&with_screen).unwrap();
+        assert!(d.screen.is_none() && d.sync_clock == Some(true));
     }
 
     #[test]

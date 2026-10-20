@@ -146,8 +146,13 @@ enum ProfileAction {
     List,
     /// Save the current configuration as NAME (overwrites it)
     Save { name: String },
-    /// Send profile NAME to the keyboard: lighting, colors, keys, macros, screen, settings
-    Apply { name: String },
+    /// Switch the keyboard to profile NAME, sending only what differs from the current configuration
+    Apply {
+        name: String,
+        /// Send everything, even the parts that look unchanged
+        #[arg(long)]
+        force: bool,
+    },
     /// Delete profile NAME
     Rm { name: String },
 }
@@ -484,11 +489,16 @@ fn run(cli: Cli) -> Result<()> {
                 profile::save_named(&name, &state)?;
                 println!("Profile '{name}' saved.");
             }
-            ProfileAction::Apply { name } => {
+            ProfileAction::Apply { name, force } => {
                 let p = profile::load_named(&name)?;
                 p.validate()?;
+                let changes = if force { Some(p.as_full_switch()) } else { p.switch_from(&state) };
+                let Some(changes) = changes else {
+                    println!("Profile '{name}' is already in use: nothing to send (use --force to resend).");
+                    return Ok(());
+                };
                 let kb = open()?;
-                apply(&kb, &p.as_full_switch())?;
+                apply(&kb, &changes)?;
                 save_state(&p)?;
                 println!("Profile '{name}' applied.");
             }

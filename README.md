@@ -41,6 +41,18 @@ they share the same saved configuration.
 
 ## Installation
 
+### Arch Linux (AUR)
+
+```bash
+yay -S ak820-bin   # prebuilt
+yay -S ak820       # built from source
+```
+
+The package also installs the udev rule, so the keyboard works without root (unplug and
+replug it once after installing).
+
+### From source
+
 To build from source you need [Rust](https://rustup.rs). On Linux, the easiest way:
 
 ```bash

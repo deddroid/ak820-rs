@@ -42,6 +42,18 @@ condividono la stessa configurazione salvata.
 
 ## Installazione
 
+### Arch Linux (AUR)
+
+```bash
+yay -S ak820-bin   # binari pronti
+yay -S ak820       # compilato dai sorgenti
+```
+
+Il pacchetto installa anche la regola udev, quindi la tastiera funziona senza root (scollegala
+e ricollegala una volta dopo l'installazione).
+
+### Dai sorgenti
+
 Per compilare dai sorgenti serve [Rust](https://rustup.rs). Su Linux, il modo più semplice:
 
 ```bash

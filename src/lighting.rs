@@ -11,7 +11,7 @@ pub const MAX_LEVEL: u8 = 5;
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
     Off,
-    /// The firmware has no real static effect: it is breath at speed 0.
+    /// Solid color (effect 01 of the official driver).
     Static,
     SingleOn,
     SingleOff,
@@ -63,7 +63,8 @@ impl Mode {
     pub fn code(self) -> u8 {
         match self {
             Mode::Off => 0x00,
-            Mode::Static | Mode::Breath => 0x07,
+            Mode::Static => 0x01,
+            Mode::Breath => 0x07,
             Mode::SingleOn => 0x02,
             Mode::SingleOff => 0x03,
             Mode::Glittering => 0x04,
@@ -111,6 +112,19 @@ impl Mode {
         }
     }
 
+    /// Which parameters the effect uses, from the official driver's effect
+    /// table (`rgb-keyboard.xml`: 1 brightness, 2 speed, 0x10 color, 0x20 rainbow).
+    pub fn caps(self) -> Caps {
+        match self {
+            Mode::Off => Caps { brightness: false, speed: false, color: false },
+            Mode::Static => Caps { brightness: true, speed: false, color: true },
+            // These two always cycle through every color.
+            Mode::Colourful | Mode::Spectrum => Caps { brightness: true, speed: true, color: false },
+            Mode::Custom => Caps { brightness: true, speed: false, color: false },
+            _ => Caps { brightness: true, speed: true, color: true },
+        }
+    }
+
     /// Which way the effect can move, if it moves at all.
     ///
     /// The firmware only has two directions per effect: byte 0 (or 3) and
@@ -134,6 +148,15 @@ impl Mode {
         };
         Mode::ALL.iter().copied().find(|m| m.name() == s)
     }
+}
+
+/// Parameters an effect uses; the others are ignored by the firmware.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Caps {
+    pub brightness: bool,
+    pub speed: bool,
+    /// A single color or the rainbow.
+    pub color: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,7 +270,7 @@ impl Lighting {
             p[1..4].copy_from_slice(&[self.color.0, self.color.1, self.color.2]);
             p[8] = self.rainbow as u8;
             p[9] = self.brightness.min(MAX_LEVEL);
-            p[10] = if self.mode == Mode::Static { 0 } else { self.speed.min(MAX_LEVEL) };
+            p[10] = if self.mode.caps().speed { self.speed.min(MAX_LEVEL) } else { 0 };
             p[11] = self.direction.code(self.mode);
         }
         p[14] = 0xAA;
@@ -277,9 +300,12 @@ mod tests {
     }
 
     #[test]
-    fn static_is_breath_at_speed_zero() {
+    fn static_is_its_own_effect() {
         let p = Lighting::new(Mode::Static).packet();
-        assert_eq!((p[0], p[10]), (0x07, 0));
+        assert_eq!((p[0], p[10]), (0x01, 0));
+        assert_eq!(Lighting::new(Mode::Breath).packet()[0], 0x07);
+        assert!(!Mode::Spectrum.caps().color && !Mode::Colourful.caps().color);
+        assert!(Mode::Rolling.caps().color);
     }
 
     #[test]

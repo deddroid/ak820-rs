@@ -539,9 +539,17 @@ impl App {
     fn apply_named(&mut self, name: &str) {
         match profile::load_named(name).and_then(|p| p.validate().map(|_| p)) {
             Ok(p) => {
-                self.resync_after_job = true;
-                let title = format!("{} {name}", t("Profile", "Profilo"));
-                self.run(&title, Op::Apply(p.as_full_switch()), Some(p));
+                match p.switch_from(&self.state) {
+                    Some(changes) => {
+                        self.resync_after_job = true;
+                        let title = format!("{} {name}", t("Profile", "Profilo"));
+                        self.run(&title, Op::Apply(changes), Some(p));
+                    }
+                    None => {
+                        let msg = t("is already in use: nothing to send", "è già in uso: niente da inviare");
+                        self.log.push((format!("{} {name} {msg}", t("Profile", "Profilo")), false));
+                    }
+                }
                 self.settings.active_profile = Some(name.to_string());
                 self.save_settings();
                 self.refresh_profiles();
@@ -667,17 +675,22 @@ impl App {
         card(ui, t("Parameters", "Parametri"), |ui| {
             ui.add_enabled_ui(!off, |ui| {
                 egui::Grid::new("light-params").num_columns(2).spacing([24.0, 12.0]).show(ui, |ui| {
+                    let caps = self.light.mode.caps();
                     ui.label(t("Color", "Colore"));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled_ui(!self.light.rainbow, |ui| color_button(ui, &mut self.light.color));
-                        ui.checkbox(&mut self.light.rainbow, t("Rainbow", "Arcobaleno"));
-                    });
+                    if caps.color {
+                        ui.horizontal(|ui| {
+                            ui.add_enabled_ui(!self.light.rainbow, |ui| color_button(ui, &mut self.light.color));
+                            ui.checkbox(&mut self.light.rainbow, t("Rainbow", "Arcobaleno"));
+                        });
+                    } else {
+                        ui.label(RichText::new(t("this effect always uses every color", "questo effetto usa sempre tutti i colori")).weak());
+                    }
                     ui.end_row();
                     ui.label(t("Brightness", "Luminosità"));
                     ui.add(Slider::new(&mut self.light.brightness, 0..=5));
                     ui.end_row();
                     ui.label(t("Speed", "Velocità"));
-                    ui.add_enabled(self.light.mode != Mode::Static, Slider::new(&mut self.light.speed, 0..=5));
+                    ui.add_enabled(caps.speed, Slider::new(&mut self.light.speed, 0..=5));
                     ui.end_row();
                     ui.label(t("Direction", "Direzione"));
                     match self.light.mode.direction_axis() {
@@ -704,12 +717,6 @@ impl App {
                 let mut s = self.state.clone();
                 s.lighting = Some(l.clone());
                 self.run(&format!("{}: {}", t("Lighting", "Luci"), mode_label(l.mode)), Op::Lighting(l), Some(s));
-            }
-            if ui.add_enabled(!self.busy && self.connected(), Button::new(t("Lights off", "Spegni luci"))).clicked() {
-                let l = Lighting::new(Mode::Off);
-                let mut s = self.state.clone();
-                s.lighting = Some(l.clone());
-                self.run(t("Lights off", "Luci spente"), Op::Lighting(l), Some(s));
             }
         });
     }
@@ -1543,7 +1550,9 @@ impl App {
             let confirm_delete = self.confirm_delete.clone();
             let active_profile = self.settings.active_profile.clone();
             let renaming = &mut self.renaming;
+            let state = &self.state;
             for (name, p) in &self.profiles {
+                let in_use = p.switch_from(state).is_none();
                 let active = active_profile.as_deref() == Some(name.as_str());
                 egui::Frame::new()
                     .fill(if active { ACCENT_SOFT.gamma_multiply(0.5) } else { ui.visuals().extreme_bg_color })
@@ -1598,11 +1607,22 @@ impl App {
                                 {
                                     action = Some(Action::Overwrite(name.clone()));
                                 }
-                                let b = Button::new(RichText::new(t("▶ Apply", "▶ Applica")).strong().color(Color32::WHITE))
-                                    .fill(ACCENT)
-                                    .min_size(Vec2::new(100.0, 30.0));
-                                if ui.add_enabled(can_apply, b).clicked() {
-                                    action = Some(Action::Apply(name.clone()));
+                                if in_use {
+                                    ui.add_sized(
+                                        Vec2::new(100.0, 30.0),
+                                        egui::Label::new(RichText::new(t("✔ In use", "✔ In uso")).color(OK).strong()),
+                                    )
+                                    .on_hover_text(t(
+                                        "The keyboard already has this configuration. Use \"Resend everything\" to send it again anyway.",
+                                        "La tastiera ha già questa configurazione. Usa \"Reinvia tutto\" per inviarla comunque.",
+                                    ));
+                                } else {
+                                    let b = Button::new(RichText::new(t("▶ Apply", "▶ Applica")).strong().color(Color32::WHITE))
+                                        .fill(ACCENT)
+                                        .min_size(Vec2::new(100.0, 30.0));
+                                    if ui.add_enabled(can_apply, b).clicked() {
+                                        action = Some(Action::Apply(name.clone()));
+                                    }
                                 }
                             });
                         });

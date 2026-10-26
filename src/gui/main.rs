@@ -134,6 +134,7 @@ fn main() -> eframe::Result {
     if !screenshots {
         let (tx, w) = (tray_tx.clone(), wake.clone());
         let primary = instance::acquire(move || {
+            tray::show_window();
             let _ = tx.send(TrayCmd::Open);
             w();
         });
@@ -2277,6 +2278,7 @@ impl eframe::App for App {
         while let Ok(cmd) = self.tray_rx.try_recv() {
             match cmd {
                 TrayCmd::Open => {
+                    tray::show_window();
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -2288,11 +2290,15 @@ impl eframe::App for App {
                 }
             }
         }
-        if self.settings.close_to_tray && self.tray.is_some() && !self.quit {
-            if ctx.input(|i| i.viewport().close_requested()) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            }
+        if self.settings.close_to_tray
+            && self.tray.is_some()
+            && !self.quit
+            && ctx.input(|i| i.viewport().close_requested())
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            tray::hide_window();
+            #[cfg(not(windows))]
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
         self.handle_messages();
         self.image_drop(ctx);

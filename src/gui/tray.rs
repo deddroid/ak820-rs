@@ -136,18 +136,98 @@ mod imp {
         let icon = ksni::Icon { width: w as i32, height: h as i32, data };
         AkTray { tx, wake, profiles, active, icon }.spawn().ok().map(Handle)
     }
+
+    pub fn show_window() {}
+    pub fn hide_window() {}
 }
 
 #[cfg(windows)]
 mod imp {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{mpsc, Mutex};
     use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
     use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::Foundation::{BOOL, HWND};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, GetMessageW, PostThreadMessageW, TranslateMessage, MSG, WM_APP, WM_QUIT,
+        DispatchMessageW, EnumWindows, FindWindowW, GetMessageW, GetWindowTextW, GetWindowThreadProcessId,
+        PostThreadMessageW, SetForegroundWindow, ShowWindow, TranslateMessage, MSG, SW_HIDE, SW_RESTORE, SW_SHOW,
+        WM_APP, WM_QUIT,
     };
+
+    static APP_HWND: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn find_app_window() -> Option<HWND> {
+        let cached = APP_HWND.load(Ordering::Relaxed);
+        if cached != 0 {
+            return Some(cached as HWND);
+        }
+
+        let my_pid = unsafe { GetCurrentProcessId() };
+
+        let title: Vec<u16> = "AK820 Pro\0".encode_utf16().collect();
+        unsafe {
+            let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+            if !hwnd.is_null() && (hwnd as usize) != 0 {
+                let mut pid = 0;
+                GetWindowThreadProcessId(hwnd, &mut pid);
+                if pid == my_pid {
+                    APP_HWND.store(hwnd as usize, Ordering::Relaxed);
+                    return Some(hwnd);
+                }
+            }
+
+            struct Context {
+                pid: u32,
+                found: Option<HWND>,
+            }
+
+            unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: isize) -> BOOL {
+                let ctx = &mut *(lparam as *mut Context);
+                let mut pid = 0;
+                GetWindowThreadProcessId(hwnd, &mut pid);
+                if pid == ctx.pid {
+                    let mut buf = [0u16; 128];
+                    let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+                    if len > 0 {
+                        let title = String::from_utf16_lossy(&buf[..len as usize]);
+                        if title.contains("AK820") {
+                            ctx.found = Some(hwnd);
+                            return 0; // stop enumerating
+                        }
+                    }
+                }
+                1 // continue
+            }
+
+            let mut ctx = Context { pid: my_pid, found: None };
+            EnumWindows(Some(enum_proc), &mut ctx as *mut Context as isize);
+            if let Some(h) = ctx.found {
+                APP_HWND.store(h as usize, Ordering::Relaxed);
+                return Some(h);
+            }
+        }
+        None
+    }
+
+    pub fn show_window() {
+        if let Some(hwnd) = find_app_window() {
+            unsafe {
+                ShowWindow(hwnd, SW_SHOW);
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
+            }
+        }
+    }
+
+    pub fn hide_window() {
+        if let Some(hwnd) = find_app_window() {
+            unsafe {
+                ShowWindow(hwnd, SW_HIDE);
+            }
+        }
+    }
 
     #[derive(Default)]
     struct Ids {
@@ -209,7 +289,13 @@ mod imp {
             *ids.lock().unwrap() = new_ids;
             let (rgba, w, h) = icon_rgba();
             let tray = Icon::from_rgba(rgba, w, h).ok().and_then(|icon| {
-                TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip("AK820 Pro").with_icon(icon).build().ok()
+                TrayIconBuilder::new()
+                    .with_menu(Box::new(menu))
+                    .with_tooltip("AK820 Pro")
+                    .with_icon(icon)
+                    .with_menu_on_left_click(false)
+                    .build()
+                    .ok()
             });
             let Some(tray) = tray else {
                 let _ = ready_tx.send(None);
@@ -219,9 +305,11 @@ mod imp {
             MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
                 let ids = menu_ids.lock().unwrap();
                 let cmd = if ids.open.as_ref() == Some(&e.id) {
+                    show_window();
                     Some(TrayCmd::Open)
                 } else if ids.quit.as_ref() == Some(&e.id) {
-                    Some(TrayCmd::Quit)
+                    send(&menu_tx, &menu_wake, TrayCmd::Quit);
+                    std::process::exit(0);
                 } else {
                     ids.profiles.iter().find(|(id, _)| *id == e.id).map(|(_, n)| TrayCmd::Apply(n.clone()))
                 };
@@ -231,6 +319,7 @@ mod imp {
             }));
             TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
                 if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
+                    show_window();
                     send(&tx, &wake, TrayCmd::Open);
                 }
             }));
@@ -270,6 +359,9 @@ mod imp {
     pub fn spawn(_tx: Sender<TrayCmd>, _wake: Wake, _profiles: Vec<String>, _active: Option<String>) -> Option<Handle> {
         None
     }
+
+    pub fn show_window() {}
+    pub fn hide_window() {}
 }
 
-pub use imp::{spawn, Handle};
+pub use imp::{hide_window, show_window, spawn, Handle};

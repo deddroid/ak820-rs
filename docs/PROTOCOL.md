@@ -1,4 +1,4 @@
-# AK820 Pro protocol (stock firmware)
+# AJAZZ AK820 & AK820 Pro protocol (stock firmware)
 
 **English** · [Italiano](PROTOCOL.it.md)
 
@@ -125,3 +125,47 @@ The receiver answers by echoing the first 3 bytes. No BEGIN/COMMIT/SAVE.
 | `20` battery | reply `[3]` = % (0 = unknown) |
 
 Per-key colors and screen: cable only.
+
+## AK820 (non-Pro, wired RGB) EVision Protocol
+
+The AJAZZ AK820 (non-Pro, wired RGB) uses an EVision USB HID controller (`VID 0x320F, PID 0x505B`).
+
+### Devices & Interfaces
+
+| Connection | VID:PID | Interfaces |
+|---|---|---|
+| USB cable | `320F:505B` | Interface 1, Usage Page `0xFF1C`, Usage `0x0092`: 65-byte HID reports (Report ID `0x04`) |
+
+### Packet Framing
+
+All commands and data use 65-byte HID buffers with Report ID `0x04` at byte 0.
+Bytes 1..2 contain a 16-bit little-endian checksum over data bytes 3..64:
+```rust
+let sum: u16 = buf[3..64].iter().map(|&b| b as u16).sum();
+buf[1..3].copy_from_slice(&sum.to_le_bytes());
+```
+
+Data transfers (config, keymap, colors) are partitioned into chunks of at most 56 bytes (`0x38`), preceded by a 7-byte header:
+`[0x04, sum_lo, sum_hi, cmd, offset_lo, offset_hi, len, data...]`.
+
+### Commands
+
+| Cmd | Meaning |
+|---|---|
+| `0x01` | BEGIN transaction |
+| `0x02` | END transaction (flushes and commits changes to flash) |
+| `0x05` / `0x06` | Read / Write active system configuration (29 bytes) |
+| `0x07` | Read factory keymap (384 bytes, 128 slots x 3 bytes) |
+| `0x08` / `0x09` | Read active keymap / Write active keymap (384 bytes) |
+| `0x0A` / `0x0B` | Read / Write custom per-key color table (384 bytes, 128 slots x 3 RGB bytes) |
+| `0x0D` / `0x0E` | Read / Write macro definitions block |
+| `0x11` / `0x12` | Live RGB animation streaming (`0x12` in dynamic mode `0xFE`) |
+
+### Keymap Slots & Encoding
+
+The AK820 key matrix spans 128 slots (384 bytes, 3 bytes per slot):
+- Regular key / shortcut: `[0x20, mods, usage]` (mods: Ctrl 0x01, Shift 0x02, Alt 0x04, Win 0x08; RCtrl 0x10, RShift 0x20, RAlt 0x40, RWin 0x80)
+- Consumer / Media / Volume knob: `[0x30, usage_lo, usage_hi]` (e.g. knob CW: `[0x30, 0xE9, 0x00]`, CCW: `[0x30, 0xEA, 0x00]`, Press: `[0x30, 0xE2, 0x00]`)
+- Mouse: `[0x40, button, wheel]`
+- Macro trigger: `[0x70, macro_id, mode]`
+- Fn key: `[0xA0, 0x01, 0x00]`

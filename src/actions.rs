@@ -5,7 +5,7 @@ use std::path::Path;
 use chrono::{Datelike, Local, NaiveDateTime, Timelike};
 
 use crate::device::{Connection, Keyboard};
-use crate::keys;
+use crate::keys::{self, Model};
 use crate::lighting::Mode;
 use crate::profile::{KeyColors, Profile};
 use crate::protocol::ClockTime;
@@ -34,7 +34,7 @@ pub fn send_keymap(kb: &Keyboard, p: &Profile) -> Result<()> {
 }
 
 pub fn send_key_colors(kb: &Keyboard, c: &KeyColors) -> Result<()> {
-    kb.set_key_colors(c.brightness, &c.resolve()?)
+    kb.set_key_colors(c.brightness, &c.resolve_for(kb.model())?)
 }
 
 pub fn load_frames(file: &Path, fit: Fit, crop: Crop) -> Result<Vec<Frame>> {
@@ -79,30 +79,35 @@ pub fn apply(
         }
         _ => {}
     }
-    // The clock switches the screen back to the clock face, so it goes before the image.
-    if p.sync_clock == Some(true) {
-        log("clock".into());
-        kb.set_clock(&now())?;
-    }
-    if let Some(s) = &p.screen {
-        if kb.connection() == Connection::Wired {
-            log(format!("screen: {}", s.image.display()));
-            upload_frames(kb, &load_frames(&s.image, s.fit, s.crop)?, &mut *progress)?;
-        } else {
-            log("screen skipped: it needs the USB cable".into());
+    if kb.model().has_screen() {
+        // The clock switches the screen back to the clock face, so it goes before the image.
+        if p.sync_clock == Some(true) {
+            log("clock".into());
+            kb.set_clock(&now())?;
+        }
+        if let Some(s) = &p.screen {
+            if kb.connection() == Connection::Wired {
+                log(format!("screen: {}", s.image.display()));
+                upload_frames(kb, &load_frames(&s.image, s.fit, s.crop)?, &mut *progress)?;
+            } else {
+                log("screen skipped: it needs the USB cable".into());
+            }
         }
     }
     Ok(())
 }
 
-/// `(light index, x 0..1, row 0..1)` of every key, from its rank in its row.
-pub fn key_grid() -> Vec<(u8, f32, f32)> {
-    const ROW_ENDS: &[&str] = &["delete", "home", "pgup", "pgdn", "up", "right"];
+/// `(light index, x 0..1, row 0..1)` of every key of `model`, from its rank in its row.
+pub fn key_grid(model: Model) -> Vec<(u8, f32, f32)> {
+    let row_ends: &[&str] = match model {
+        Model::Ak820Pro => &["delete", "home", "pgup", "pgdn", "up", "right"],
+        Model::Ak820 => &["delete", "home", "pgup", "pgdn", "end", "right"],
+    };
     let mut rows: Vec<Vec<u8>> = Vec::new();
     let mut row = Vec::new();
-    for (name, idx) in keys::all_lights() {
+    for (name, idx) in keys::all_lights_for(model) {
         row.push(idx);
-        if ROW_ENDS.contains(&name) {
+        if row_ends.contains(&name) {
             rows.push(std::mem::take(&mut row));
         }
     }

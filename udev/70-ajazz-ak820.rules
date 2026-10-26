@@ -4,3 +4,5 @@
 KERNEL=="hidraw*", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="8009", MODE="0660", GROUP="input", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="800a", MODE="0660", GROUP="input", TAG+="uaccess"
 KERNEL=="hidraw*", ATTRS{idVendor}=="0c45", ATTRS{idProduct}=="fdfd", MODE="0660", GROUP="input", TAG+="uaccess"
+# 320f:505b AK820 (non-Pro, wired RGB)
+KERNEL=="hidraw*", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="505b", MODE="0660", GROUP="input", TAG+="uaccess"

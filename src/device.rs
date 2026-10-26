@@ -1,14 +1,20 @@
-//! HID transport: USB cable (feature reports on 0xFF13 + screen data on 0xFF68)
-//! or the 2.4 GHz receiver (32-byte frames on 0xFF60).
+//! HID transport:
+//! - AK820 Pro wired: feature reports on `0xFF13` + screen data on `0xFF68`
+//! - AK820 Pro 2.4 GHz receiver: 32-byte frames on `0xFF60`
+//! - AK820 (`320F:505B`) wired: 64-byte interrupt reports (report ID `0x04`) on `0xFF1C:0x0092`
 
+use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::thread::sleep;
 use std::time::Duration;
 
 use hidapi::{DeviceInfo, HidApi, HidDevice};
 
+use crate::keys::Model;
 use crate::lighting::{Lighting, Mode};
-use crate::protocol::{self as p, cmd, rf, ClockTime, Packet, SystemSettings, PACKET};
+use crate::profile::{KeyColors, Keymap, Profile, System};
+use crate::protocol::{self as p, cmd, evision, rf, ClockTime, Packet, SystemSettings, PACKET};
 use crate::{Error, Result, Rgb};
 
 /// The official driver waits 35 ms before and after every command; without
@@ -25,18 +31,23 @@ pub enum Connection {
 enum Link {
     Wired { config: HidDevice, data_path: Option<CString> },
     Receiver(HidDevice),
+    Evision(HidDevice),
 }
 
 pub struct Keyboard {
     api: HidApi,
     link: Link,
+    model: Model,
+    vid: u16,
     pid: u16,
     debug: bool,
+    live_saved_cfg: Cell<Option<[u8; p::AK820_CONFIG_LEN]>>,
 }
 
 /// One HID interface of the keyboard, for `ak820 list`.
 #[derive(Debug, Clone)]
 pub struct InterfaceInfo {
+    pub vid: u16,
     pub pid: u16,
     pub interface: i32,
     pub usage_page: u16,
@@ -49,8 +60,9 @@ pub fn list_interfaces() -> Result<Vec<InterfaceInfo>> {
     let api = HidApi::new()?;
     let mut out: Vec<InterfaceInfo> = api
         .device_list()
-        .filter(|d| d.vendor_id() == p::VID)
+        .filter(|d| d.vendor_id() == p::VID || (d.vendor_id() == p::EVISION_VID && d.product_id() == p::AK820_PID))
         .map(|d| InterfaceInfo {
+            vid: d.vendor_id(),
             pid: d.product_id(),
             interface: d.interface_number(),
             usage_page: d.usage_page(),
@@ -59,16 +71,24 @@ pub fn list_interfaces() -> Result<Vec<InterfaceInfo>> {
             path: d.path().to_string_lossy().into_owned(),
         })
         .collect();
-    out.sort_by_key(|i| (i.pid, i.interface, i.usage_page));
+    out.sort_by_key(|i| (i.vid, i.pid, i.interface, i.usage_page, i.usage));
     Ok(out)
 }
 
-fn find<'a>(api: &'a HidApi, pids: &[u16], usage_page: u16, interface: i32) -> Option<&'a DeviceInfo> {
+fn find<'a>(
+    api: &'a HidApi,
+    vid: u16,
+    pids: &[u16],
+    usage_page: u16,
+    usage: Option<u16>,
+    interface: i32,
+) -> Option<&'a DeviceInfo> {
     let candidates: Vec<&DeviceInfo> =
-        api.device_list().filter(|d| d.vendor_id() == p::VID && pids.contains(&d.product_id())).collect();
+        api.device_list().filter(|d| d.vendor_id() == vid && pids.contains(&d.product_id())).collect();
     candidates
         .iter()
-        .find(|d| d.usage_page() == usage_page)
+        .find(|d| d.usage_page() == usage_page && usage.is_none_or(|u| d.usage() == u))
+        .or_else(|| candidates.iter().find(|d| d.usage_page() == usage_page))
         // Some backends (e.g. libusb) report no usage page: fall back to the interface number.
         .or_else(|| candidates.iter().find(|d| d.usage_page() == 0 && d.interface_number() == interface))
         .copied()
@@ -88,35 +108,80 @@ fn open_error(e: hidapi::HidError) -> Error {
 }
 
 impl Keyboard {
-    /// Open the keyboard: USB cable first, then the 2.4 GHz receiver.
+    /// Open the keyboard: USB cable first (AK820 Pro or AK820), then the 2.4 GHz receiver.
     pub fn open() -> Result<Keyboard> {
         let api = HidApi::new()?;
         let debug = std::env::var_os("AK820_DEBUG").is_some();
-        if let Some(info) = find(&api, p::WIRED_PIDS, p::CONFIG_USAGE_PAGE, p::CONFIG_INTERFACE) {
+        if let Some(info) = find(&api, p::VID, p::WIRED_PIDS, p::CONFIG_USAGE_PAGE, None, p::CONFIG_INTERFACE) {
             let pid = info.product_id();
             let config = info.open_device(&api).map_err(open_error)?;
-            let data_path =
-                find(&api, p::WIRED_PIDS, p::DATA_USAGE_PAGE, p::DATA_INTERFACE).map(|d| d.path().to_owned());
-            return Ok(Keyboard { link: Link::Wired { config, data_path }, api, pid, debug });
+            let data_path = find(&api, p::VID, p::WIRED_PIDS, p::DATA_USAGE_PAGE, None, p::DATA_INTERFACE)
+                .map(|d| d.path().to_owned());
+            return Ok(Keyboard {
+                link: Link::Wired { config, data_path },
+                api,
+                model: Model::Ak820Pro,
+                vid: p::VID,
+                pid,
+                debug,
+                live_saved_cfg: Cell::new(None),
+            });
         }
-        if let Some(info) = find(&api, &[p::RECEIVER_PID], p::RECEIVER_USAGE_PAGE, p::RECEIVER_INTERFACE) {
+        if let Some(info) = find(
+            &api,
+            p::EVISION_VID,
+            &[p::AK820_PID],
+            p::EVISION_USAGE_PAGE,
+            Some(p::EVISION_USAGE),
+            p::EVISION_INTERFACE,
+        ) {
             let pid = info.product_id();
             let dev = info.open_device(&api).map_err(open_error)?;
-            return Ok(Keyboard { link: Link::Receiver(dev), api, pid, debug });
+            return Ok(Keyboard {
+                link: Link::Evision(dev),
+                api,
+                model: Model::Ak820,
+                vid: p::EVISION_VID,
+                pid,
+                debug,
+                live_saved_cfg: Cell::new(None),
+            });
+        }
+        if let Some(info) = find(&api, p::VID, &[p::RECEIVER_PID], p::RECEIVER_USAGE_PAGE, None, p::RECEIVER_INTERFACE)
+        {
+            let pid = info.product_id();
+            let dev = info.open_device(&api).map_err(open_error)?;
+            return Ok(Keyboard {
+                link: Link::Receiver(dev),
+                api,
+                model: Model::Ak820Pro,
+                vid: p::VID,
+                pid,
+                debug,
+                live_saved_cfg: Cell::new(None),
+            });
         }
         let bt = api.device_list().any(|d| d.vendor_id() == p::VID && d.product_id() == p::BLUETOOTH_PID);
         Err(Error::NotFound(if bt {
             "the keyboard is connected via Bluetooth, which cannot be configured: use the USB cable or the 2.4 GHz receiver".into()
         } else {
-            "AK820 Pro not found (USB cable or 2.4 GHz receiver). Try `ak820 list`.".into()
+            "AK820 / AK820 Pro not found (USB cable or 2.4 GHz receiver). Try `ak820 list`.".into()
         }))
     }
 
     pub fn connection(&self) -> Connection {
         match self.link {
-            Link::Wired { .. } => Connection::Wired,
+            Link::Wired { .. } | Link::Evision(_) => Connection::Wired,
             Link::Receiver(_) => Connection::Receiver,
         }
+    }
+
+    pub fn model(&self) -> Model {
+        self.model
+    }
+
+    pub fn vid(&self) -> u16 {
+        self.vid
     }
 
     pub fn pid(&self) -> u16 {
@@ -133,14 +198,14 @@ impl Keyboard {
 
     fn config(&self) -> Result<&HidDevice> {
         match &self.link {
-            Link::Wired { config, .. } => Ok(config),
+            Link::Wired { config, .. } | Link::Evision(config) => Ok(config),
             Link::Receiver(_) => {
                 Err(Error::Unsupported("this needs the USB cable (not supported through the 2.4 GHz receiver)".into()))
             }
         }
     }
 
-    // ---- wired primitives ------------------------------------------------
+    // ---- wired primitives (AK820 Pro) ------------------------------------
 
     fn feature(&self, packet: &Packet, pause: Duration) -> Result<()> {
         let dev = self.config()?;
@@ -202,6 +267,57 @@ impl Keyboard {
         Err(Error::Transfer(format!("the keyboard did not accept the {what}")))
     }
 
+    // ---- EVision primitives (AK820 320F:505B) ----------------------------
+
+    fn evision_send(&self, dev: &HidDevice, pkt: &Packet) -> Result<Packet> {
+        self.trace("->", pkt);
+        dev.write(pkt)?;
+        let mut resp = [0u8; PACKET];
+        let n = dev.read_timeout(&mut resp, 1000)?;
+        if n == 0 {
+            return Err(Error::Transfer("no response from the AK820 keyboard".into()));
+        }
+        self.trace("<-", &resp[..n]);
+        if resp[7] == 0xFF || resp[7] == 0xFE {
+            return Err(Error::Transfer(format!(
+                "keyboard rejected command 0x{:02x} (status 0x{:02x})",
+                pkt[3], resp[7]
+            )));
+        }
+        Ok(resp)
+    }
+
+    fn evision_read(&self, dev: &HidDevice, cmd: u8, offset: u16, len: usize) -> Result<Vec<u8>> {
+        let mut out = Vec::with_capacity(len);
+        for (req, chunk_len) in p::evision_read_requests(cmd, offset, len) {
+            let resp = self.evision_send(dev, &req)?;
+            out.extend_from_slice(&resp[8..8 + chunk_len]);
+        }
+        Ok(out)
+    }
+
+    fn evision_write(&self, dev: &HidDevice, cmd: u8, offset: u16, data: &[u8]) -> Result<()> {
+        for pkt in p::evision_write_packets(cmd, offset, data) {
+            self.evision_send(dev, &pkt)?;
+        }
+        Ok(())
+    }
+
+    fn evision_read_config(&self, dev: &HidDevice) -> Result<[u8; p::AK820_CONFIG_LEN]> {
+        let raw = self.evision_read(dev, evision::READ_CONFIG, 0, p::AK820_CONFIG_LEN)?;
+        let mut cfg = p::evision_default_config();
+        cfg.copy_from_slice(&raw[..p::AK820_CONFIG_LEN]);
+        Ok(cfg)
+    }
+
+    fn evision_write_config(&self, dev: &HidDevice, cfg: &[u8; p::AK820_CONFIG_LEN]) -> Result<()> {
+        self.evision_send(dev, &p::evision_packet(evision::BEGIN, 0, 0, &[]))?;
+        self.evision_write(dev, evision::WRITE_CONFIG, 0, cfg)?;
+        sleep(Duration::from_millis(10));
+        self.evision_send(dev, &p::evision_packet(evision::END, 0, 0, &[]))?;
+        Ok(())
+    }
+
     // ---- receiver primitives --------------------------------------------
 
     fn rf_send(&self, frames: &[[u8; p::RF_FRAME]]) -> Result<()> {
@@ -244,6 +360,11 @@ impl Keyboard {
 
     /// Apply a built-in lighting effect (saved in the keyboard).
     pub fn set_lighting(&self, l: &Lighting) -> Result<()> {
+        if let Link::Evision(dev) = &self.link {
+            let mut cfg = self.evision_read_config(dev)?;
+            p::evision_apply_lighting(&mut cfg, l);
+            return self.evision_write_config(dev, &cfg);
+        }
         let data = l.packet();
         match self.connection() {
             Connection::Receiver => self.rf_send(&p::rf_frames(rf::LIGHTING, &p::rf_short(&data), None)),
@@ -260,6 +381,18 @@ impl Keyboard {
 
     /// Static per-key colors (switches the effect to `custom`). Wired only.
     pub fn set_key_colors(&self, brightness: u8, colors: &[(u8, Rgb)]) -> Result<()> {
+        if let Link::Evision(dev) = &self.link {
+            let mut cfg = self.evision_read_config(dev)?;
+            let effect = Lighting { brightness, ..Lighting::new(Mode::Custom) };
+            p::evision_apply_lighting(&mut cfg, &effect);
+            let rgb_table = p::evision_color_table(colors.iter().map(|&(i, c)| (i, c.bytes())));
+            self.evision_send(dev, &p::evision_packet(evision::BEGIN, 0, 0, &[]))?;
+            self.evision_write(dev, evision::WRITE_CONFIG, 0, &cfg)?;
+            self.evision_write(dev, evision::WRITE_COLORS, 0, &rgb_table)?;
+            sleep(Duration::from_millis(10));
+            self.evision_send(dev, &p::evision_packet(evision::END, 0, 0, &[]))?;
+            return Ok(());
+        }
         self.config()?;
         let effect = Lighting { brightness, ..Lighting::new(Mode::Custom) };
         self.set_lighting(&effect)?;
@@ -270,6 +403,18 @@ impl Keyboard {
     /// One real-time per-key frame, not saved. The keyboard returns to its
     /// saved effect shortly after frames stop. Wired only.
     pub fn live_frame(&self, colors: &[(u8, Rgb)]) -> Result<()> {
+        if let Link::Evision(dev) = &self.link {
+            if self.live_saved_cfg.get().is_none() {
+                let orig = self.evision_read_config(dev)?;
+                let mut live_cfg = orig;
+                live_cfg[1] = 0xFE; // dynamic host streaming mode
+                live_cfg[2] = 4;
+                self.evision_write_config(dev, &live_cfg)?;
+                self.live_saved_cfg.set(Some(orig));
+            }
+            let rgb_table = p::evision_color_table(colors.iter().map(|&(i, c)| (i, c.bytes())));
+            return self.evision_write(dev, evision::LIVE_COLORS, 0, &rgb_table);
+        }
         let data = p::live_frame(colors.iter().map(|&(i, c)| (i, c.bytes())));
         self.feature(&p::control(cmd::LIVE_COLORS, 0, 8), Duration::from_millis(5))?;
         self.data(&data, Duration::from_millis(2))?;
@@ -284,6 +429,9 @@ impl Keyboard {
 
     /// Set the screen clock. This also switches the screen back to the clock.
     pub fn set_clock(&self, t: &ClockTime) -> Result<()> {
+        if matches!(self.link, Link::Evision(_)) {
+            return Err(Error::Unsupported("the AK820 (non-Pro) does not have a screen clock".into()));
+        }
         match self.connection() {
             Connection::Receiver => self.rf_send(&p::rf_frames(rf::CLOCK, &p::rf_clock_data(t), None)),
             Connection::Wired => {
@@ -299,6 +447,11 @@ impl Keyboard {
 
     /// Sleep timer, Fn mode, debounce and key blocking. All in one packet.
     pub fn set_system(&self, s: &SystemSettings) -> Result<()> {
+        if let Link::Evision(dev) = &self.link {
+            let mut cfg = self.evision_read_config(dev)?;
+            p::evision_apply_system(&mut cfg, s);
+            return self.evision_write_config(dev, &cfg);
+        }
         let data = p::system_packet(s);
         if self.connection() == Connection::Receiver {
             return self.rf_send(&p::rf_frames(rf::SYSTEM, &p::rf_short(&data), None));
@@ -322,6 +475,23 @@ impl Keyboard {
     pub fn set_keymaps(&self, normal: &[u8], fn_layer: &[u8], macros: &[Vec<[u8; 4]>]) -> Result<()> {
         use crate::macros::{block, data_len};
         let too_big = || Error::Invalid("the macros do not fit in the keyboard memory (3.5 KB)".into());
+        if let Link::Evision(dev) = &self.link {
+            let def_km = self
+                .evision_read(dev, evision::READ_DEFAULT_KEYMAP, 0, p::AK820_TABLE_LEN)
+                .ok()
+                .and_then(|v| <[u8; p::AK820_TABLE_LEN]>::try_from(v).ok())
+                .unwrap_or_else(p::evision_default_keymap);
+            let km = p::evision_from_pro_keymap(normal, &def_km);
+            let mac_buf = p::evision_macro_block(macros).ok_or_else(too_big)?;
+            self.evision_send(dev, &p::evision_packet(evision::BEGIN, 0, 0, &[]))?;
+            self.evision_write(dev, evision::WRITE_KEYMAP, 0, &km)?;
+            if !macros.is_empty() {
+                self.evision_write(dev, evision::WRITE_MACROS, 0, &mac_buf)?;
+            }
+            sleep(Duration::from_millis(10));
+            self.evision_send(dev, &p::evision_packet(evision::END, 0, 0, &[]))?;
+            return Ok(());
+        }
         match self.connection() {
             Connection::Receiver => {
                 let blk = block(macros, p::RF_CHUNK).ok_or_else(too_big)?;
@@ -359,8 +529,48 @@ impl Keyboard {
         Err(Error::Transfer("the keyboard did not accept the macros".into()))
     }
 
-    /// Upload screen blocks (see [`crate::screen::blocks`]). Wired only.
+    /// Read the active configuration directly from the keyboard (supported on AK820 `320F:505B`).
+    pub fn read_profile(&self) -> Result<Profile> {
+        let Link::Evision(dev) = &self.link else {
+            return Err(Error::Unsupported(
+                "reading configuration from the keyboard is only supported on the AK820 (320F:505B)".into(),
+            ));
+        };
+        let cfg = self.evision_read_config(dev)?;
+        let lighting = p::evision_parse_lighting(&cfg);
+        let sys = p::evision_parse_system(&cfg);
+
+        let colors_raw = self.evision_read(dev, evision::READ_COLORS, 0, p::AK820_TABLE_LEN)?;
+        let mut colors_arr = [0u8; p::AK820_TABLE_LEN];
+        colors_arr.copy_from_slice(&colors_raw[..p::AK820_TABLE_LEN]);
+        let (base, keys) = p::evision_parse_colors(&colors_arr);
+
+        let def_km = self
+            .evision_read(dev, evision::READ_DEFAULT_KEYMAP, 0, p::AK820_TABLE_LEN)
+            .ok()
+            .and_then(|v| <[u8; p::AK820_TABLE_LEN]>::try_from(v).ok())
+            .unwrap_or_else(p::evision_default_keymap);
+        let act_raw = self.evision_read(dev, evision::READ_KEYMAP, 0, p::AK820_TABLE_LEN)?;
+        let mut act_km = [0u8; p::AK820_TABLE_LEN];
+        act_km.copy_from_slice(&act_raw[..p::AK820_TABLE_LEN]);
+        let normal = p::evision_parse_keymap(&act_km, &def_km);
+
+        Ok(Profile {
+            sync_clock: None,
+            lighting: Some(lighting.clone()),
+            key_colors: Some(KeyColors { base, brightness: lighting.brightness.max(1), keys }),
+            system: Some(System::from_settings(&sys)),
+            keymap: Some(Keymap { normal, fn_layer: BTreeMap::new() }),
+            macros: BTreeMap::new(),
+            screen: None,
+        })
+    }
+
+    /// Upload screen blocks (see [`crate::screen::blocks`]). Wired AK820 Pro only.
     pub fn upload_screen(&self, blocks: &[Vec<u8>], mut progress: impl FnMut(usize, usize)) -> Result<()> {
+        if matches!(self.link, Link::Evision(_)) {
+            return Err(Error::Unsupported("the AK820 (non-Pro) does not have a screen".into()));
+        }
         let Link::Wired { data_path, .. } = &self.link else {
             self.config()?;
             unreachable!()
@@ -404,5 +614,15 @@ impl Keyboard {
             }
         }
         Ok(None)
+    }
+}
+
+impl Drop for Keyboard {
+    fn drop(&mut self) {
+        if let (Link::Evision(dev), Some(orig_cfg)) = (&self.link, self.live_saved_cfg.take()) {
+            // Best effort: put back the effect the live demo replaced. Drop cannot report
+            // an error, and a failure only leaves the demo's streaming mode active.
+            let _ = self.evision_write_config(dev, &orig_cfg);
+        }
     }
 }

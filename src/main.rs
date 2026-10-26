@@ -9,13 +9,13 @@ use clap::{Parser, Subcommand};
 use ak820::device::{list_interfaces, Connection};
 use ak820::lighting::{Direction, Lighting, Mode};
 use ak820::macros::{MacroDef, MacroMode};
-use ak820::profile::{self, FnMode, KeyColors, Keymap, Profile, Screen, SleepTime, System};
+use ak820::profile::{self, FnMode, KeyColors, Keymap, PollingRate, Profile, Screen, SleepTime, System};
 use ak820::protocol;
 use ak820::screen::{self, Crop, Fit};
-use ak820::{actions, keys, Keyboard, Rgb};
+use ak820::{actions, keys, Keyboard, Model, Rgb};
 
 #[derive(Parser)]
-#[command(name = "ak820", version, about = "Configure the AJAZZ AK820 Pro keyboard (Linux & Windows)")]
+#[command(name = "ak820", version, about = "Configure the AJAZZ AK820 Pro and AK820 keyboards (Linux & Windows)")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -76,7 +76,7 @@ enum Command {
         #[arg(long, default_value_t = 0.5)]
         y: f32,
     },
-    /// Sleep timer, Fn mode, debounce, key blocking (unset options keep their last value)
+    /// Sleep timer, Fn mode, debounce, key blocking, polling rate, NKRO (unset options keep their last value)
     System {
         #[arg(long, value_enum)]
         sleep: Option<SleepTime>,
@@ -91,6 +91,15 @@ enum Command {
         block_alt_f4: Option<bool>,
         #[arg(long, value_name = "on|off", value_parser = parse_onoff)]
         block_alt_tab: Option<bool>,
+        /// USB polling rate: 125hz, 250hz, 500hz, 1000hz (AK820)
+        #[arg(long, value_enum)]
+        polling_rate: Option<PollingRate>,
+        /// N-key rollover (AK820)
+        #[arg(long, value_name = "on|off", value_parser = parse_onoff)]
+        nkro: Option<bool>,
+        /// Swap WASD with arrow keys (AK820)
+        #[arg(long, value_name = "on|off", value_parser = parse_onoff)]
+        swap_wasd: Option<bool>,
     },
     /// Remap keys inside the keyboard, e.g. `ak820 remap pgdn=end capslock=ctrl`
     Remap {
@@ -119,6 +128,11 @@ enum Command {
     Profile {
         #[command(subcommand)]
         action: ProfileAction,
+    },
+    /// Read the active configuration directly from the keyboard (AK820 320F:505B)
+    Read {
+        /// Optional file to export the read profile to
+        file: Option<PathBuf>,
     },
     /// Write the remembered configuration as a profile
     Export { file: Option<PathBuf> },
@@ -203,7 +217,7 @@ fn open() -> Result<Keyboard> {
         Connection::Wired => "USB cable",
         Connection::Receiver => "2.4 GHz receiver",
     };
-    eprintln!("AK820 Pro (PID {:04x}) via {how}", kb.pid());
+    eprintln!("{} (VID {:04x} PID {:04x}) via {how}", kb.model().name(), kb.vid(), kb.pid());
     Ok(kb)
 }
 
@@ -254,7 +268,7 @@ fn print_keymap(state: &Profile) {
 }
 
 fn print_keys() {
-    let names: Vec<String> = keys::all_lights().map(|(n, _)| n.to_string()).collect();
+    let names: Vec<String> = keys::all_lights_for(Model::Ak820).into_iter().map(|(n, _)| n.to_string()).collect();
     println!("Physical keys (remap sources, per-key colors):\n  {}\n", names.join(" "));
     println!("Remap targets:");
     println!("  key            a..z 0..9 f1..f24 enter esc backspace tab space minus equal lbracket");
@@ -285,18 +299,24 @@ fn run(cli: Cli) -> Result<()> {
         Command::List => {
             let list = list_interfaces()?;
             if list.is_empty() {
-                bail!("no AK820 device (VID 0c45) found");
+                bail!("no AK820 / AK820 Pro device (VID 0c45 or 320f:505b) found");
             }
             for i in list {
-                let role = match (i.pid, i.usage_page) {
-                    (_, protocol::CONFIG_USAGE_PAGE) => "  <- configuration",
-                    (_, protocol::DATA_USAGE_PAGE) => "  <- screen data",
-                    (protocol::RECEIVER_PID, protocol::RECEIVER_USAGE_PAGE) => "  <- 2.4G receiver",
+                let role = match (i.vid, i.pid, i.usage_page, i.usage) {
+                    (protocol::VID, _, protocol::CONFIG_USAGE_PAGE, _) => "  <- configuration (AK820 Pro)",
+                    (protocol::VID, _, protocol::DATA_USAGE_PAGE, _) => "  <- screen data (AK820 Pro)",
+                    (protocol::VID, protocol::RECEIVER_PID, protocol::RECEIVER_USAGE_PAGE, _) => "  <- 2.4G receiver",
+                    (
+                        protocol::EVISION_VID,
+                        protocol::AK820_PID,
+                        protocol::EVISION_USAGE_PAGE,
+                        protocol::EVISION_USAGE,
+                    ) => "  <- configuration (AK820)",
                     _ => "",
                 };
                 println!(
-                    "{:04x}  if {}  usage page {:04x}:{:04x}  {}  {}{role}",
-                    i.pid, i.interface, i.usage_page, i.usage, i.product, i.path
+                    "{:04x}:{:04x}  if {}  usage page {:04x}:{:04x}  {}  {}{role}",
+                    i.vid, i.pid, i.interface, i.usage_page, i.usage, i.product, i.path
                 );
             }
         }
@@ -379,7 +399,17 @@ fn run(cli: Cli) -> Result<()> {
             save_state(&state)?;
             println!("Screen updated.");
         }
-        Command::System { sleep, fn_mode, response, block_win, block_alt_f4, block_alt_tab } => {
+        Command::System {
+            sleep,
+            fn_mode,
+            response,
+            block_win,
+            block_alt_f4,
+            block_alt_tab,
+            polling_rate,
+            nkro,
+            swap_wasd,
+        } => {
             let mut s = state.system.unwrap_or_default();
             s.sleep = sleep.unwrap_or(s.sleep);
             s.fn_mode = fn_mode.unwrap_or(s.fn_mode);
@@ -387,6 +417,9 @@ fn run(cli: Cli) -> Result<()> {
             s.block_win = block_win.unwrap_or(s.block_win);
             s.block_alt_f4 = block_alt_f4.unwrap_or(s.block_alt_f4);
             s.block_alt_tab = block_alt_tab.unwrap_or(s.block_alt_tab);
+            s.polling_rate = polling_rate.unwrap_or(s.polling_rate);
+            s.nkro = nkro.unwrap_or(s.nkro);
+            s.swap_wasd = swap_wasd.unwrap_or(s.swap_wasd);
             open()?.set_system(&s.settings()?)?;
             state.system = Some(s);
             save_state(&state)?;
@@ -506,6 +539,22 @@ fn run(cli: Cli) -> Result<()> {
                 println!("Profile '{name}' deleted.");
             }
         },
+        Command::Read { file } => {
+            let kb = open()?;
+            let mut read_prof = kb.read_profile()?;
+            // Preserve existing named macros if any
+            read_prof.macros = state.macros.clone();
+            state.merge(&read_prof);
+            save_state(&state)?;
+            let text = toml::to_string_pretty(&state)?;
+            match file {
+                Some(f) => {
+                    std::fs::write(&f, &text).with_context(|| format!("cannot write {}", f.display()))?;
+                    println!("Configuration read from keyboard and saved to {}.", f.display());
+                }
+                None => print!("{text}"),
+            }
+        }
         Command::Export { file } => {
             let text = toml::to_string_pretty(&state)?;
             match file {
@@ -552,7 +601,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Keys => print_keys(),
         Command::Demo { seconds } => {
             let kb = open()?;
-            let grid = actions::key_grid();
+            let grid = actions::key_grid(kb.model());
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(seconds) {
                 let t = start.elapsed().as_secs_f32();

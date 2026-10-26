@@ -1,16 +1,19 @@
 //! A complete keyboard configuration, stored as TOML.
 //!
-//! The keyboard cannot be read back, so the last applied configuration is kept
-//! in a state file and every change is merged into it.
+//! On the AK820 Pro the keyboard cannot be read back, so the last applied
+//! configuration is kept in a state file and every change is merged into it.
+//! On the AK820 (`320F:505B`) the current configuration can also be read back
+//! directly from the keyboard.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::keys;
+use crate::keys::{self, Model};
 use crate::lighting::Lighting;
 use crate::macros::{self, MacroDef};
+pub use crate::protocol::PollingRate;
 use crate::protocol::{self, SystemSettings};
 use crate::screen::{Crop, Fit};
 use crate::{Error, Result, Rgb};
@@ -59,10 +62,15 @@ fn five() -> u8 {
 
 impl KeyColors {
     pub fn resolve(&self) -> Result<Vec<(u8, Rgb)>> {
+        self.resolve_for(Model::Ak820Pro)
+    }
+
+    pub fn resolve_for(&self, model: Model) -> Result<Vec<(u8, Rgb)>> {
         for name in self.keys.keys() {
             keys::position(name).ok_or_else(|| Error::UnknownKey(name.clone()))?;
         }
-        Ok(keys::all_lights()
+        Ok(keys::all_lights_for(model)
+            .into_iter()
             .map(|(_, idx)| {
                 let color = self
                     .keys
@@ -119,10 +127,23 @@ pub struct System {
     pub block_alt_f4: bool,
     #[serde(default)]
     pub block_alt_tab: bool,
+    /// USB polling rate (AK820).
+    #[serde(default)]
+    pub polling_rate: PollingRate,
+    /// N-key rollover (AK820).
+    #[serde(default = "yes")]
+    pub nkro: bool,
+    /// Swap WASD with arrow keys (AK820).
+    #[serde(default)]
+    pub swap_wasd: bool,
 }
 
 fn two() -> u8 {
     2
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for System {
@@ -134,6 +155,9 @@ impl Default for System {
             block_win: false,
             block_alt_f4: false,
             block_alt_tab: false,
+            polling_rate: PollingRate::default(),
+            nkro: true,
+            swap_wasd: false,
         }
     }
 }
@@ -150,7 +174,30 @@ impl System {
             fn_toggle: self.fn_mode == FnMode::Toggle,
             sleep: self.sleep as u8,
             response: self.response,
+            polling_rate: self.polling_rate,
+            nkro: self.nkro,
+            swap_wasd: self.swap_wasd,
         })
+    }
+
+    pub fn from_settings(s: &SystemSettings) -> Self {
+        let sleep = match s.sleep {
+            0 => SleepTime::Never,
+            1 => SleepTime::Min1,
+            3 => SleepTime::Min30,
+            _ => SleepTime::Min5,
+        };
+        System {
+            sleep,
+            fn_mode: if s.fn_toggle { FnMode::Toggle } else { FnMode::Hold },
+            response: s.response.clamp(1, 5),
+            block_win: s.block_win,
+            block_alt_f4: s.block_alt_f4,
+            block_alt_tab: s.block_alt_tab,
+            polling_rate: s.polling_rate,
+            nkro: s.nkro,
+            swap_wasd: s.swap_wasd,
+        }
     }
 }
 
@@ -461,12 +508,18 @@ mod tests {
 
     #[test]
     fn key_colors_resolve() {
-        let c =
-            KeyColors { base: Rgb(0, 0, 32), brightness: 5, keys: BTreeMap::from([("w".to_string(), Rgb(255, 0, 0))]) };
+        let c = KeyColors {
+            base: Rgb(0, 0, 32),
+            brightness: 5,
+            keys: BTreeMap::from([("w".to_string(), Rgb(255, 0, 0)), ("end".to_string(), Rgb(0, 255, 0))]),
+        };
         let r = c.resolve().unwrap();
         assert_eq!(r.len(), 81);
         assert!(r.contains(&(39, Rgb(255, 0, 0))));
         assert!(r.contains(&(1, Rgb(0, 0, 32))));
+        let r_ak820 = c.resolve_for(Model::Ak820).unwrap();
+        assert_eq!(r_ak820.len(), 82);
+        assert!(r_ak820.contains(&(keys::END_POS, Rgb(0, 255, 0))));
     }
 
     #[test]

@@ -1,5 +1,5 @@
-//! Configuration library for the AJAZZ AK820 Pro keyboard (stock firmware),
-//! working on Linux and Windows through hidapi.
+//! Configuration library for the AJAZZ AK820 Pro and AK820 keyboards (stock
+//! firmware), working on Linux and Windows through hidapi.
 //!
 //! The protocol was consolidated from several community projects; see
 //! `docs/PROTOCOL.md` and the README for credits.
@@ -17,6 +17,7 @@ use std::fmt;
 use std::str::FromStr;
 
 pub use device::{Connection, Keyboard};
+pub use keys::Model;
 pub use lighting::{Direction, Lighting, Mode};
 pub use profile::Profile;
 

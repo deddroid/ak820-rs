@@ -57,19 +57,23 @@ struct Worker {
     tx: Sender<Msg>,
     wake: Wake,
     last: Option<Status>,
+    kb: Option<Keyboard>,
 }
 
 pub fn spawn(rx: Receiver<Job>, tx: Sender<Msg>, wake: Wake) {
     std::thread::spawn(move || {
-        let mut w = Worker { tx, wake, last: None };
+        let mut w = Worker { tx, wake, last: None, kb: None };
         w.probe();
         loop {
             match rx.recv_timeout(Duration::from_millis(1500)) {
                 Ok(job) => {
                     w.run(job);
-                    w.probe();
                 }
-                Err(RecvTimeoutError::Timeout) => w.probe(),
+                Err(RecvTimeoutError::Timeout) => {
+                    if w.kb.is_none() {
+                        w.probe();
+                    }
+                }
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
@@ -100,10 +104,16 @@ impl Worker {
     }
 
     fn probe(&mut self) {
-        let s = status_of(&Keyboard::open());
-        if self.last.as_ref() != Some(&s) {
-            self.last = Some(s.clone());
-            self.send(Msg::Status(s));
+        if self.kb.is_none() {
+            let res = Keyboard::open();
+            let s = status_of(&res);
+            if let Ok(kb) = res {
+                self.kb = Some(kb);
+            }
+            if self.last.as_ref() != Some(&s) {
+                self.last = Some(s.clone());
+                self.send(Msg::Status(s));
+            }
         }
     }
 
@@ -129,24 +139,27 @@ impl Worker {
         self.send(Msg::Done { ok, new_state: job.new_state.filter(|_| ok) });
     }
 
-    fn execute(&self, job: &mut Job) -> Result<(), Error> {
+    fn execute(&mut self, job: &mut Job) -> Result<(), Error> {
         #[cfg(target_os = "linux")]
         if let Op::InstallUdev = job.op {
             return install_udev();
         }
-        let kb = Keyboard::open()?;
+        if self.kb.is_none() {
+            self.kb = Some(Keyboard::open()?);
+        }
+        let kb = self.kb.as_ref().unwrap();
         let progress = |i: usize, n: usize| self.send(Msg::Progress(i as f32 / n as f32));
-        match &job.op {
+        let result = match &job.op {
             Op::Lighting(l) => kb.set_lighting(l),
-            Op::KeyColors(c) => actions::send_key_colors(&kb, c),
-            Op::Keymap(p) => actions::send_keymap(&kb, p),
+            Op::KeyColors(c) => actions::send_key_colors(kb, c),
+            Op::Keymap(p) => actions::send_keymap(kb, p),
             Op::Clock => kb.set_clock(&actions::now()),
             Op::System(s) => kb.set_system(s),
             Op::Screen(screen) => {
                 let frames = actions::load_frames(&screen.image, screen.fit, screen.crop)?;
-                actions::upload_frames(&kb, &frames, progress)
+                actions::upload_frames(kb, &frames, progress)
             }
-            Op::Apply(p) => actions::apply(&kb, p, &mut |m| self.log(format!("  {m}")), &mut |i, n| progress(i, n)),
+            Op::Apply(p) => actions::apply(kb, p, &mut |m| self.log(format!("  {m}")), &mut |i, n| progress(i, n)),
             Op::Read(current) => {
                 let mut read_prof = kb.read_profile()?;
                 read_prof.macros = current.macros.clone();
@@ -174,7 +187,13 @@ impl Worker {
             }
             #[cfg(target_os = "linux")]
             Op::InstallUdev => unreachable!(),
+        };
+        if result.is_err() {
+            self.kb = None;
+            self.last = None;
+            self.send(Msg::Status(Status::NotFound));
         }
+        result
     }
 }
 

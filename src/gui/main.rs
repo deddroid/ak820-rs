@@ -12,7 +12,7 @@ mod worker;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,6 +32,7 @@ use layout::KeyLook;
 use settings::Settings;
 use tray::{TrayCmd, Wake};
 use worker::{Job, Msg, Op, Status};
+
 
 const ACCENT: Color32 = Color32::from_rgb(124, 92, 255);
 const ACCENT_SOFT: Color32 = Color32::from_rgb(70, 56, 140);
@@ -58,7 +59,7 @@ fn event_loop_hook() -> Option<eframe::EventLoopBuilderHook> {
     None
 }
 
-fn native_options() -> eframe::NativeOptions {
+fn native_options(visible: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
         event_loop_builder: event_loop_hook(),
         viewport: egui::ViewportBuilder::default()
@@ -66,7 +67,8 @@ fn native_options() -> eframe::NativeOptions {
             .with_app_id("ak820")
             .with_inner_size([1180.0, 780.0])
             .with_min_inner_size([900.0, 620.0])
-            .with_icon(app_icon()),
+            .with_icon(app_icon())
+            .with_visible(visible),
         ..Default::default()
     }
 }
@@ -110,40 +112,18 @@ fn main() -> eframe::Result {
         }
     }
 
+    let initial_visible = !start_in_tray || !settings.close_to_tray;
     let app = Arc::new(Mutex::new(App::new(settings, wake, tray_tx, tray_rx, start_in_tray)));
-    let mut show = !(start_in_tray && app.lock().unwrap().tray.is_some());
-    loop {
-        if show {
-            let (a, slot) = (app.clone(), ctx_slot.clone());
-            eframe::run_native(
-                "AK820 Pro",
-                native_options(),
-                Box::new(move |cc| {
-                    *slot.lock().unwrap() = Some(cc.egui_ctx.clone());
-                    a.lock().unwrap().attach(&cc.egui_ctx);
-                    Ok(Box::new(Window(a)))
-                }),
-            )?;
-            *ctx_slot.lock().unwrap() = None;
-            let a = app.lock().unwrap();
-            if a.quit || a.tray.is_none() {
-                break;
-            }
-            show = false;
-        } else {
-            // Window closed, icon in the tray: wait for the tray menu.
-            let cmd = app.lock().unwrap().tray_rx.recv_timeout(Duration::from_millis(500));
-            let mut a = app.lock().unwrap();
-            match cmd {
-                Ok(TrayCmd::Open) => show = true,
-                Ok(TrayCmd::Apply(name)) => a.apply_named(&name),
-                Ok(TrayCmd::Quit) | Err(RecvTimeoutError::Disconnected) => break,
-                Err(RecvTimeoutError::Timeout) => {}
-            }
-            a.handle_messages();
-        }
-    }
-    Ok(())
+    let (a, slot) = (app.clone(), ctx_slot.clone());
+    eframe::run_native(
+        "AK820 Pro",
+        native_options(initial_visible),
+        Box::new(move |cc| {
+            *slot.lock().unwrap() = Some(cc.egui_ctx.clone());
+            a.lock().unwrap().attach(&cc.egui_ctx);
+            Ok(Box::new(Window(a)))
+        }),
+    )
 }
 
 fn app_icon() -> egui::IconData {
@@ -2011,6 +1991,7 @@ impl eframe::App for App {
         while let Ok(cmd) = self.tray_rx.try_recv() {
             match cmd {
                 TrayCmd::Open => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
@@ -2019,6 +2000,12 @@ impl eframe::App for App {
                     self.quit = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
+            }
+        }
+        if self.settings.close_to_tray && self.tray.is_some() && !self.quit {
+            if ctx.input(|i| i.viewport().close_requested()) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             }
         }
         self.handle_messages();

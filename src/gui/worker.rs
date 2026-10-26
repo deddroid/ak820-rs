@@ -7,7 +7,7 @@ use ak820::device::Connection;
 use ak820::lighting::Lighting;
 use ak820::profile::{self, KeyColors, Profile, Screen};
 use ak820::protocol::SystemSettings;
-use ak820::{actions, Error, Keyboard};
+use ak820::{actions, Error, Keyboard, Model};
 
 use crate::i18n::t;
 use crate::tray::Wake;
@@ -20,6 +20,7 @@ pub enum Op {
     System(SystemSettings),
     Screen(Screen),
     Apply(Profile),
+    Read(Profile),
     Demo(u64),
     Battery,
     #[cfg(target_os = "linux")]
@@ -36,7 +37,7 @@ pub struct Job {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     Searching,
-    Wired(u16),
+    Wired(Model, u16),
     Receiver,
     Bluetooth,
     NotFound,
@@ -78,7 +79,7 @@ pub fn spawn(rx: Receiver<Job>, tx: Sender<Msg>, wake: Wake) {
 fn status_of(r: &Result<Keyboard, Error>) -> Status {
     match r {
         Ok(kb) => match kb.connection() {
-            Connection::Wired => Status::Wired(kb.pid()),
+            Connection::Wired => Status::Wired(kb.model(), kb.pid()),
             Connection::Receiver => Status::Receiver,
         },
         Err(Error::Permission(_)) => Status::Permission,
@@ -106,15 +107,18 @@ impl Worker {
         }
     }
 
-    fn run(&mut self, job: Job) {
+    fn run(&mut self, mut job: Job) {
         self.log(format!("{}…", job.title));
-        let result = self.execute(job.op);
+        let result = self.execute(&mut job);
         let ok = result.is_ok();
         match result {
             Ok(()) => {
                 if let Some(state) = &job.new_state {
                     if let Err(e) = state.save(&profile::state_path()) {
-                        self.send(Msg::Log { text: format!("{}: {e}", t("Could not save the state", "Impossibile salvare lo stato")), error: true });
+                        self.send(Msg::Log {
+                            text: format!("{}: {e}", t("Could not save the state", "Impossibile salvare lo stato")),
+                            error: true,
+                        });
                     }
                 }
                 self.log(format!("{}: {}", job.title, t("done", "fatto")));
@@ -125,26 +129,35 @@ impl Worker {
         self.send(Msg::Done { ok, new_state: job.new_state.filter(|_| ok) });
     }
 
-    fn execute(&self, op: Op) -> Result<(), Error> {
+    fn execute(&self, job: &mut Job) -> Result<(), Error> {
         #[cfg(target_os = "linux")]
-        if let Op::InstallUdev = op {
+        if let Op::InstallUdev = job.op {
             return install_udev();
         }
         let kb = Keyboard::open()?;
         let progress = |i: usize, n: usize| self.send(Msg::Progress(i as f32 / n as f32));
-        match op {
-            Op::Lighting(l) => kb.set_lighting(&l),
-            Op::KeyColors(c) => actions::send_key_colors(&kb, &c),
-            Op::Keymap(p) => actions::send_keymap(&kb, &p),
+        match &job.op {
+            Op::Lighting(l) => kb.set_lighting(l),
+            Op::KeyColors(c) => actions::send_key_colors(&kb, c),
+            Op::Keymap(p) => actions::send_keymap(&kb, p),
             Op::Clock => kb.set_clock(&actions::now()),
-            Op::System(s) => kb.set_system(&s),
+            Op::System(s) => kb.set_system(s),
             Op::Screen(screen) => {
                 let frames = actions::load_frames(&screen.image, screen.fit, screen.crop)?;
                 actions::upload_frames(&kb, &frames, progress)
             }
-            Op::Apply(p) => actions::apply(&kb, &p, &mut |m| self.log(format!("  {m}")), &mut |i, n| progress(i, n)),
+            Op::Apply(p) => actions::apply(&kb, p, &mut |m| self.log(format!("  {m}")), &mut |i, n| progress(i, n)),
+            Op::Read(current) => {
+                let mut read_prof = kb.read_profile()?;
+                read_prof.macros = current.macros.clone();
+                let mut merged = current.clone();
+                merged.merge(&read_prof);
+                job.new_state = Some(merged);
+                Ok(())
+            }
             Op::Demo(secs) => {
-                let grid = actions::key_grid();
+                let secs = *secs;
+                let grid = actions::key_grid_for(kb.model());
                 let start = Instant::now();
                 let total = Duration::from_secs(secs);
                 while start.elapsed() < total {

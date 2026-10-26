@@ -23,12 +23,12 @@ use eframe::egui::{
 
 use ak820::lighting::{Direction, Lighting, Mode};
 use ak820::macros::{MacroDef, MacroMode};
-use ak820::profile::{self, FnMode, KeyColors, Keymap, Profile, Screen, SleepTime, System};
+use ak820::profile::{self, FnMode, KeyColors, Keymap, PollingRate, Profile, Screen, SleepTime, System};
 use ak820::screen::{self, Crop, Fit};
-use ak820::{actions, keys, Rgb};
+use ak820::{actions, keys, Model, Rgb};
 
 use i18n::{t, Lang};
-use layout::{KeyLook, LAYOUT};
+use layout::KeyLook;
 use settings::Settings;
 use tray::{TrayCmd, Wake};
 use worker::{Job, Msg, Op, Status};
@@ -359,6 +359,7 @@ struct Shots {
 struct App {
     tab: Tab,
     settings: Settings,
+    model: Model,
     autostart: bool,
     tray: Option<tray::Handle>,
     tray_tx: Sender<TrayCmd>,
@@ -476,6 +477,7 @@ impl App {
             shots: std::env::var_os("AK820_GUI_SHOTS")
                 .map(|d| Shots { dir: d.into(), index: 0, wait: 0, requested: false }),
             settings,
+            model: Model::Ak820Pro,
         };
         app.state = state;
         app.load_drafts();
@@ -580,11 +582,11 @@ impl App {
     }
 
     fn connected(&self) -> bool {
-        matches!(self.status, Status::Wired(_) | Status::Receiver)
+        matches!(self.status, Status::Wired(..) | Status::Receiver)
     }
 
     fn wired(&self) -> bool {
-        matches!(self.status, Status::Wired(_))
+        matches!(self.status, Status::Wired(..))
     }
 
     fn run(&mut self, title: &str, op: Op, new_state: Option<Profile>) {
@@ -600,8 +602,21 @@ impl App {
                     if s == Status::Receiver {
                         self.battery = None;
                     }
+                    if let Status::Wired(m, _) = s {
+                        if self.model != m {
+                            self.model = m;
+                            if !self.model.has_screen() && self.tab == Tab::Screen {
+                                self.tab = Tab::Lighting;
+                            }
+                        }
+                        if self.model == Model::Ak820 && !self.clock_synced {
+                            self.clock_synced = true;
+                            self.resync_after_job = true;
+                            self.run(t("Read from keyboard", "Leggi dalla tastiera"), Op::Read(self.state.clone()), None);
+                        }
+                    }
                     self.status = s;
-                    if self.settings.sync_clock_on_start && !self.clock_synced && self.connected() {
+                    if self.model.has_screen() && self.settings.sync_clock_on_start && !self.clock_synced && self.connected() {
                         self.clock_synced = true;
                         self.run(t("Clock", "Orologio"), Op::Clock, None);
                     }
@@ -730,7 +745,7 @@ impl App {
                 "Clic: colora con il pennello · clic destro: torna al colore di base. Solo via cavo.",
             ),
         );
-        let clicked = layout::keyboard(ui, |name| {
+        let clicked = layout::keyboard(ui, self.model, |name| {
             let color = self
                 .colors
                 .keys
@@ -771,7 +786,7 @@ impl App {
                         self.colors.keys.clear();
                     }
                     if ui.button(t("Rainbow", "Arcobaleno")).clicked() {
-                        for (idx, x, y) in actions::key_grid() {
+                        for (idx, x, y) in actions::key_grid_for(self.model) {
                             if let Some(name) = keys::canonical_name(idx) {
                                 self.colors.keys.insert(name.into(), actions::hsv(x * 0.8 + y * 0.1));
                             }
@@ -813,19 +828,23 @@ impl App {
                 "Le modifiche sono salvate nella tastiera e valgono su ogni computer.",
             ),
         );
-        ui.horizontal(|ui| {
-            ui.label("Layer:");
-            if ui.selectable_label(!self.fn_layer, t("Normal", "Normale")).clicked() {
-                self.fn_layer = false;
-            }
-            if ui.selectable_label(self.fn_layer, "Fn +").clicked() {
-                self.fn_layer = true;
-            }
-        });
-        ui.add_space(6.0);
+        if self.model.has_screen() {
+            ui.horizontal(|ui| {
+                ui.label("Layer:");
+                if ui.selectable_label(!self.fn_layer, t("Normal", "Normale")).clicked() {
+                    self.fn_layer = false;
+                }
+                if ui.selectable_label(self.fn_layer, "Fn +").clicked() {
+                    self.fn_layer = true;
+                }
+            });
+            ui.add_space(6.0);
+        } else {
+            self.fn_layer = false;
+        }
         let fn_layer = self.fn_layer;
         let layer = if fn_layer { &self.keymap.fn_layer } else { &self.keymap.normal };
-        let clicked = layout::keyboard(ui, |name| {
+        let clicked = layout::keyboard(ui, self.model, |name| {
             let target = layer.get(name);
             KeyLook {
                 fill: if target.is_some() { ACCENT_SOFT } else { KEYCAP },
@@ -858,7 +877,7 @@ impl App {
             });
             return;
         };
-        let label = LAYOUT.iter().find(|k| k.0 == key).map_or(key, |k| k.1);
+        let label = layout::layout_for(self.model).iter().find(|k| k.0 == key).map_or(key, |k| k.1);
         let heading = format!("{}{}", if self.fn_layer { "Fn + " } else { "" }, if label.is_empty() { t("Space", "Spazio") } else { label });
         card(ui, &heading, |ui| {
             ComboBox::from_id_salt("kind")
@@ -1430,41 +1449,61 @@ impl App {
             t("Clock, power saving and key behavior.", "Orologio, risparmio energetico e comportamento dei tasti."),
         );
         self.app_settings_card(ui);
-        ui.add_space(8.0);
-        card(ui, t("Screen clock", "Orologio del display"), |ui| {
-            ui.horizontal(|ui| {
-                let format = t("%Y-%m-%d  %H:%M:%S", "%d/%m/%Y  %H:%M:%S");
-                ui.label(RichText::new(chrono::Local::now().format(format).to_string()).monospace().size(18.0));
-                ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
-                if ui.add_enabled(!self.busy && self.connected(), Button::new(t("🕒 Sync with the PC", "🕒 Sincronizza con il PC"))).clicked() {
-                    self.run("Orologio", Op::Clock, None);
-                }
+        if self.model.has_screen() {
+            ui.add_space(8.0);
+            card(ui, t("Screen clock", "Orologio del display"), |ui| {
+                ui.horizontal(|ui| {
+                    let format = t("%Y-%m-%d  %H:%M:%S", "%d/%m/%Y  %H:%M:%S");
+                    ui.label(RichText::new(chrono::Local::now().format(format).to_string()).monospace().size(18.0));
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+                    if ui.add_enabled(!self.busy && self.connected(), Button::new(t("🕒 Sync with the PC", "🕒 Sincronizza con il PC"))).clicked() {
+                        self.run("Orologio", Op::Clock, None);
+                    }
+                });
             });
-        });
+        }
         ui.add_space(8.0);
         card(ui, t("Settings", "Impostazioni"), |ui| {
             egui::Grid::new("system").num_columns(2).spacing([24.0, 12.0]).show(ui, |ui| {
-                ui.label(t("Sleep (on battery)", "Sospensione (a batteria)"));
-                ui.horizontal(|ui| {
-                    for (v, l) in [(SleepTime::Never, t("Never", "Mai")), (SleepTime::Min1, "1 min"), (SleepTime::Min5, "5 min"), (SleepTime::Min30, "30 min")] {
-                        ui.selectable_value(&mut self.system.sleep, v, l);
-                    }
-                });
-                ui.end_row();
-                ui.label(t("Fn key", "Tasto Fn"));
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.system.fn_mode, FnMode::Hold, t("Hold", "Tenuto premuto"));
-                    ui.selectable_value(&mut self.system.fn_mode, FnMode::Toggle, t("Toggle", "Attiva/disattiva"));
-                });
-                ui.end_row();
+                if self.model.has_screen() {
+                    ui.label(t("Sleep (on battery)", "Sospensione (a batteria)"));
+                    ui.horizontal(|ui| {
+                        for (v, l) in [(SleepTime::Never, t("Never", "Mai")), (SleepTime::Min1, "1 min"), (SleepTime::Min5, "5 min"), (SleepTime::Min30, "30 min")] {
+                            ui.selectable_value(&mut self.system.sleep, v, l);
+                        }
+                    });
+                    ui.end_row();
+                    ui.label(t("Fn key", "Tasto Fn"));
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.system.fn_mode, FnMode::Hold, t("Hold", "Tenuto premuto"));
+                        ui.selectable_value(&mut self.system.fn_mode, FnMode::Toggle, t("Toggle", "Attiva/disattiva"));
+                    });
+                    ui.end_row();
+                } else {
+                    ui.label(t("Polling rate", "Frequenza di polling"));
+                    ui.horizontal(|ui| {
+                        for r in [PollingRate::Hz125, PollingRate::Hz250, PollingRate::Hz500, PollingRate::Hz1000] {
+                            ui.selectable_value(&mut self.system.polling_rate, r, r.label());
+                        }
+                    });
+                    ui.end_row();
+                    ui.label("NKRO");
+                    ui.checkbox(&mut self.system.nkro, t("N-key rollover", "N-key rollover"));
+                    ui.end_row();
+                    ui.label(t("WASD", "WASD"));
+                    ui.checkbox(&mut self.system.swap_wasd, t("Swap WASD with arrow keys", "Inverti WASD con le frecce"));
+                    ui.end_row();
+                }
                 ui.label(t("Debounce", "Antirimbalzo"));
                 ui.add(Slider::new(&mut self.system.response, 1..=5).text(t("1 fast · 5 slow", "1 veloce · 5 lento")));
                 ui.end_row();
                 ui.label(t("Block", "Blocca"));
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.system.block_win, "Win");
-                    ui.checkbox(&mut self.system.block_alt_f4, "Alt+F4");
-                    ui.checkbox(&mut self.system.block_alt_tab, "Alt+Tab");
+                    if self.model.has_screen() {
+                        ui.checkbox(&mut self.system.block_alt_f4, "Alt+F4");
+                        ui.checkbox(&mut self.system.block_alt_tab, "Alt+Tab");
+                    }
                 });
                 ui.end_row();
             });
@@ -1477,28 +1516,30 @@ impl App {
                 }
             }
         });
-        ui.add_space(8.0);
-        card(ui, t("Battery", "Batteria"), |ui| {
-            ui.horizontal(|ui| {
-                let enabled = !self.busy && self.status == Status::Receiver;
-                if ui
-                    .add_enabled(enabled, Button::new(t("🔋 Read battery", "🔋 Leggi batteria")))
-                    .on_disabled_hover_text(t("Available only with the 2.4 GHz receiver", "Disponibile solo con il ricevitore 2.4 GHz"))
-                    .clicked()
-                {
-                    self.run(t("Battery", "Batteria"), Op::Battery, None);
-                }
-                match self.battery {
-                    Some(Some(v)) => {
-                        ui.add(egui::ProgressBar::new(v as f32 / 100.0).text(format!("{v}%")).desired_width(200.0));
+        if self.model.has_screen() {
+            ui.add_space(8.0);
+            card(ui, t("Battery", "Batteria"), |ui| {
+                ui.horizontal(|ui| {
+                    let enabled = !self.busy && self.status == Status::Receiver;
+                    if ui
+                        .add_enabled(enabled, Button::new(t("🔋 Read battery", "🔋 Leggi batteria")))
+                        .on_disabled_hover_text(t("Available only with the 2.4 GHz receiver", "Disponibile solo con il ricevitore 2.4 GHz"))
+                        .clicked()
+                    {
+                        self.run(t("Battery", "Batteria"), Op::Battery, None);
                     }
-                    Some(None) => {
-                        ui.label(t("Level not available (keyboard asleep?)", "Livello non disponibile (tastiera in standby?)"));
+                    match self.battery {
+                        Some(Some(v)) => {
+                            ui.add(egui::ProgressBar::new(v as f32 / 100.0).text(format!("{v}%")).desired_width(200.0));
+                        }
+                        Some(None) => {
+                            ui.label(t("Level not available (keyboard asleep?)", "Livello non disponibile (tastiera in standby?)"));
+                        }
+                        None => {}
                     }
-                    None => {}
-                }
+                });
             });
-        });
+        }
     }
 
     fn saved_profiles_card(&mut self, ui: &mut Ui) {
@@ -1728,6 +1769,19 @@ impl App {
                         }
                     }
                 }
+                if self.model == Model::Ak820 {
+                    if ui
+                        .add_enabled(!self.busy && self.connected(), Button::new(t("⬇ Read from keyboard", "⬇ Leggi dalla tastiera")))
+                        .on_hover_text(t(
+                            "Read configuration directly from the keyboard",
+                            "Leggi la configurazione direttamente dalla tastiera",
+                        ))
+                        .clicked()
+                    {
+                        self.resync_after_job = true;
+                        self.run(t("Read from keyboard", "Leggi dalla tastiera"), Op::Read(self.state.clone()), None);
+                    }
+                }
                 if ui
                     .add_enabled(!self.busy && self.connected(), Button::new(t("🔁 Resend everything", "🔁 Reinvia tutto")))
                     .on_hover_text(t(
@@ -1797,8 +1851,8 @@ impl App {
             ui.horizontal_centered(|ui| {
                 let (color, text) = match &self.status {
                     Status::Searching => (Color32::GRAY, t("Looking for the keyboard…", "Ricerca tastiera…").to_string()),
-                    Status::Wired(pid) => {
-                        (OK, format!("{} (PID {pid:04x})", t("Connected via USB cable", "Collegata via cavo USB")))
+                    Status::Wired(model, pid) => {
+                        (OK, format!("{} {} (PID {pid:04x})", t("Connected via USB cable", "Collegata via cavo USB"), model.name()))
                     }
                     Status::Receiver => (OK, t("Connected via 2.4 GHz receiver", "Collegata via ricevitore 2.4 GHz").into()),
                     Status::Bluetooth => (
@@ -1862,10 +1916,13 @@ impl App {
     fn nav(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("nav").exact_width(190.0).resizable(false).show(ctx, |ui| {
             ui.add_space(16.0);
-            ui.label(RichText::new("AK820 Pro").size(22.0).strong().color(ACCENT));
+            ui.label(RichText::new(self.model.name()).size(22.0).strong().color(ACCENT));
             ui.label(RichText::new(t("configurator", "configuratore")).weak());
             ui.add_space(18.0);
             for &(tab, icon, en, it) in TABS {
+                if tab == Tab::Screen && !self.model.has_screen() && self.shots.is_none() {
+                    continue;
+                }
                 let selected = self.tab == tab;
                 let text = RichText::new(format!("{icon}   {}", t(en, it))).size(16.0);
                 let b = Button::new(if selected { text.color(Color32::WHITE) } else { text })

@@ -86,6 +86,58 @@ impl Mode {
         }
     }
 
+    /// Mode byte (`cfg[1]`) on the AK820 (`320F:505B`, EVision MCU).
+    pub fn ak820_code(self) -> u8 {
+        match self {
+            Mode::Rolling => 1,
+            Mode::Colourful => 2,
+            Mode::Rotating => 3,
+            Mode::Spectrum => 4,
+            Mode::Breath => 5,
+            Mode::Static => 6,
+            Mode::SingleOn => 7,
+            Mode::Ripples => 8,
+            Mode::Launch => 9,
+            Mode::Glittering => 10,
+            Mode::Explode => 11,
+            Mode::Scrolling => 12,
+            Mode::Flowing => 13,
+            Mode::SingleOff => 14,
+            Mode::Falling => 15,
+            Mode::Shuttle | Mode::Tilt => 16,
+            Mode::Outward => 17,
+            Mode::Pulsating => 18,
+            Mode::Custom => 20,
+            Mode::Off => 24,
+        }
+    }
+
+    pub fn from_ak820_code(code: u8) -> Option<Self> {
+        Some(match code {
+            1 => Mode::Rolling,
+            2 => Mode::Colourful,
+            3 => Mode::Rotating,
+            4 => Mode::Spectrum,
+            5 => Mode::Breath,
+            6 => Mode::Static,
+            7 => Mode::SingleOn,
+            8 => Mode::Ripples,
+            9 => Mode::Launch,
+            10 => Mode::Glittering,
+            11 => Mode::Explode,
+            12 => Mode::Scrolling,
+            13 => Mode::Flowing,
+            14 => Mode::SingleOff,
+            15 => Mode::Falling,
+            16 => Mode::Shuttle,
+            17 => Mode::Outward,
+            18 => Mode::Pulsating,
+            20 => Mode::Custom,
+            0 | 24 => Mode::Off,
+            _ => return None,
+        })
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Mode::Off => "off",
@@ -332,5 +384,13 @@ mod tests {
             assert_eq!(Mode::from_name(m.name()), Some(*m));
         }
         assert_eq!(Mode::from_name("wave"), Some(Mode::Rolling));
+    }
+
+    #[test]
+    fn ak820_codes_roundtrip() {
+        for code in [1..=18, 20..=20, 24..=24].into_iter().flatten() {
+            let m = Mode::from_ak820_code(code).unwrap();
+            assert_eq!(m.ak820_code(), code);
+        }
     }
 }

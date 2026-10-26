@@ -36,12 +36,72 @@ const FN_LOCKED: &[u8] = &[1, 103, 117, 67, 92, 119];
 /// The Fn key has a LED but cannot be remapped.
 const FN_KEY: u8 = 96;
 
+/// Supported keyboard hardware model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum Model {
+    #[default]
+    Ak820Pro,
+    Ak820,
+}
+
+impl Model {
+    pub fn name(self) -> &'static str {
+        match self {
+            Model::Ak820Pro => "AK820 Pro",
+            Model::Ak820 => "AK820",
+        }
+    }
+
+    pub fn has_screen(self) -> bool {
+        self == Model::Ak820Pro
+    }
+}
+
+/// Logical key position used for the `End` key on the non-Pro AK820.
+pub const END_POS: u8 = 120;
+
+/// Mapping between logical `key_index` (`u8`) and the AK820 (`320F:505B`) hardware matrix/LED slot (`0..128`).
+pub const AK820_HW_MAP: &[(u8, usize)] = &[
+    // Row 0
+    (1, 0), (2, 8), (3, 16), (4, 24), (5, 32), (6, 40), (7, 48), (8, 56),
+    (9, 64), (10, 72), (11, 80), (12, 88), (13, 96), (119, 114),
+    // Row 1
+    (19, 1), (20, 9), (21, 17), (22, 25), (23, 33), (24, 41), (25, 49), (26, 57),
+    (27, 65), (28, 73), (29, 81), (30, 89), (31, 97), (103, 105), (117, 121),
+    // Row 2
+    (37, 2), (38, 10), (39, 18), (40, 26), (41, 34), (42, 42), (43, 50), (44, 58),
+    (45, 66), (46, 74), (47, 82), (48, 90), (49, 98), (67, 106), (118, 122),
+    // Row 3
+    (55, 3), (56, 11), (57, 19), (58, 27), (59, 35), (60, 43), (61, 51), (62, 59),
+    (63, 67), (64, 75), (65, 83), (66, 91), (85, 107), (121, 115),
+    // Row 4
+    (73, 4), (74, 20), (75, 28), (76, 36), (77, 44), (78, 52), (79, 60), (80, 68),
+    (81, 76), (82, 84), (83, 92), (84, 108), (101, 116), (END_POS, 123),
+    // Row 5
+    (91, 5), (92, 13), (93, 21), (94, 45), (95, 77), (96, 85),
+    (98, 93), (99, 109), (100, 117), (102, 125),
+];
+
+pub fn ak820_hw_slot(pos: u8) -> Option<usize> {
+    AK820_HW_MAP.iter().find(|&&(p, _)| p == pos).map(|&(_, hw)| hw)
+}
+
+pub fn ak820_pos_from_hw_slot(hw: usize) -> Option<u8> {
+    AK820_HW_MAP.iter().find(|&&(_, h)| h == hw).map(|&(p, _)| p)
+}
+
 pub fn position(name: &str) -> Option<u8> {
     let n = name.to_ascii_lowercase();
+    if n == "end" {
+        return Some(END_POS);
+    }
     KEYS.iter().find(|(k, _)| *k == n).map(|&(_, i)| i)
 }
 
 pub fn canonical_name(index: u8) -> Option<&'static str> {
+    if index == END_POS {
+        return Some("end");
+    }
     KEYS.iter().find(|&&(_, i)| i == index).map(|&(k, _)| k)
 }
 
@@ -56,6 +116,19 @@ pub fn all_lights() -> impl Iterator<Item = (&'static str, u8)> {
             true
         }
     })
+}
+
+/// Every key with a LED for the given model, canonical names only.
+pub fn all_lights_for(model: Model) -> Vec<(&'static str, u8)> {
+    let mut out: Vec<(&'static str, u8)> = all_lights().collect();
+    if model == Model::Ak820 {
+        if let Some(up_pos) = out.iter().position(|&(n, _)| n == "up") {
+            out.insert(up_pos + 1, ("end", END_POS));
+        } else {
+            out.push(("end", END_POS));
+        }
+    }
+    out
 }
 
 pub fn check_remappable(name: &str, fn_layer: bool) -> Result<u8, Error> {
@@ -132,6 +205,66 @@ pub fn usage(name: &str) -> Option<u8> {
         "rshift" => 0xE5,
         "ralt" | "altgr" => 0xE6,
         "rwin" | "rgui" | "rsuper" | "rcmd" => 0xE7,
+        _ => return None,
+    })
+}
+
+/// Canonical key name from a HID keyboard usage code.
+pub fn name_from_usage(u: u8) -> Option<&'static str> {
+    Some(match u {
+        0x04 => "a", 0x05 => "b", 0x06 => "c", 0x07 => "d", 0x08 => "e", 0x09 => "f",
+        0x0A => "g", 0x0B => "h", 0x0C => "i", 0x0D => "j", 0x0E => "k", 0x0F => "l",
+        0x10 => "m", 0x11 => "n", 0x12 => "o", 0x13 => "p", 0x14 => "q", 0x15 => "r",
+        0x16 => "s", 0x17 => "t", 0x18 => "u", 0x19 => "v", 0x1A => "w", 0x1B => "x",
+        0x1C => "y", 0x1D => "z",
+        0x1E => "1", 0x1F => "2", 0x20 => "3", 0x21 => "4", 0x22 => "5",
+        0x23 => "6", 0x24 => "7", 0x25 => "8", 0x26 => "9", 0x27 => "0",
+        0x28 => "enter",
+        0x29 => "esc",
+        0x2A => "backspace",
+        0x2B => "tab",
+        0x2C => "space",
+        0x2D => "minus",
+        0x2E => "equal",
+        0x2F => "lbracket",
+        0x30 => "rbracket",
+        0x31 => "backslash",
+        0x32 => "nonus#",
+        0x33 => "semicolon",
+        0x34 => "quote",
+        0x35 => "grave",
+        0x36 => "comma",
+        0x37 => "period",
+        0x38 => "slash",
+        0x39 => "capslock",
+        0x3A => "f1", 0x3B => "f2", 0x3C => "f3", 0x3D => "f4", 0x3E => "f5", 0x3F => "f6",
+        0x40 => "f7", 0x41 => "f8", 0x42 => "f9", 0x43 => "f10", 0x44 => "f11", 0x45 => "f12",
+        0x46 => "printscreen",
+        0x47 => "scrolllock",
+        0x48 => "pause",
+        0x49 => "insert",
+        0x4A => "home",
+        0x4B => "pgup",
+        0x4C => "delete",
+        0x4D => "end",
+        0x4E => "pgdn",
+        0x4F => "right",
+        0x50 => "left",
+        0x51 => "down",
+        0x52 => "up",
+        0x53 => "numlock",
+        0x64 => "nonus\\",
+        0x65 => "menu",
+        0x68 => "f13", 0x69 => "f14", 0x6A => "f15", 0x6B => "f16", 0x6C => "f17", 0x6D => "f18",
+        0x6E => "f19", 0x6F => "f20", 0x70 => "f21", 0x71 => "f22", 0x72 => "f23", 0x73 => "f24",
+        0xE0 => "lctrl",
+        0xE1 => "lshift",
+        0xE2 => "lalt",
+        0xE3 => "win",
+        0xE4 => "rctrl",
+        0xE5 => "rshift",
+        0xE6 => "ralt",
+        0xE7 => "rwin",
         _ => return None,
     })
 }
@@ -299,9 +432,17 @@ mod tests {
     fn positions() {
         assert_eq!(position("esc"), Some(1));
         assert_eq!(position("PgDn"), Some(121));
+        assert_eq!(position("end"), Some(END_POS));
         assert_eq!(position("\\"), Some(67));
         assert_eq!(canonical_name(121), Some("pgdn"));
+        assert_eq!(canonical_name(END_POS), Some("end"));
         assert_eq!(all_lights().count(), 81);
+        assert_eq!(all_lights_for(Model::Ak820Pro).len(), 81);
+        assert_eq!(all_lights_for(Model::Ak820).len(), 82);
+        assert_eq!(AK820_HW_MAP.len(), 82);
+        assert_eq!(ak820_hw_slot(1), Some(0));
+        assert_eq!(ak820_hw_slot(END_POS), Some(123));
+        assert_eq!(ak820_pos_from_hw_slot(123), Some(END_POS));
     }
 
     #[test]
@@ -312,6 +453,8 @@ mod tests {
         assert_eq!(usage("f12"), Some(0x45));
         assert_eq!(usage("f13"), Some(0x68));
         assert_eq!(usage("shift"), Some(0xE1));
+        assert_eq!(name_from_usage(0x04), Some("a"));
+        assert_eq!(name_from_usage(0x4D), Some("end"));
     }
 
     #[test]

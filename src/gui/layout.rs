@@ -1,8 +1,9 @@
-//! Physical key layout of the AK820 Pro (ANSI 75%), drawn by the GUI.
+//! Physical key layout of the AK820 Pro and AK820 (ANSI 75%), drawn by the GUI.
 
+use ak820::Model;
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
-/// `(key name, label, x, y, width)` in key units.
+/// `(key name, label, x, y, width)` in key units for AK820 Pro (81 keys + TFT screen).
 pub const LAYOUT: &[(&str, &str, f32, f32, f32)] = &[
     ("esc", "Esc", 0.0, 0.0, 1.0),
     ("f1", "F1", 1.25, 0.0, 1.0),
@@ -87,6 +88,99 @@ pub const LAYOUT: &[(&str, &str, f32, f32, f32)] = &[
     ("right", "→", 15.0, 5.25, 1.0),
 ];
 
+/// `(key name, label, x, y, width)` in key units for AK820 (82 keys + rotary knob at top-right).
+pub const LAYOUT_AK820: &[(&str, &str, f32, f32, f32)] = &[
+    ("esc", "Esc", 0.0, 0.0, 1.0),
+    ("f1", "F1", 1.25, 0.0, 1.0),
+    ("f2", "F2", 2.25, 0.0, 1.0),
+    ("f3", "F3", 3.25, 0.0, 1.0),
+    ("f4", "F4", 4.25, 0.0, 1.0),
+    ("f5", "F5", 5.5, 0.0, 1.0),
+    ("f6", "F6", 6.5, 0.0, 1.0),
+    ("f7", "F7", 7.5, 0.0, 1.0),
+    ("f8", "F8", 8.5, 0.0, 1.0),
+    ("f9", "F9", 9.75, 0.0, 1.0),
+    ("f10", "F10", 10.75, 0.0, 1.0),
+    ("f11", "F11", 11.75, 0.0, 1.0),
+    ("f12", "F12", 12.75, 0.0, 1.0),
+    ("delete", "Del", 13.75, 0.0, 1.0),
+    ("grave", "`", 0.0, 1.25, 1.0),
+    ("1", "1", 1.0, 1.25, 1.0),
+    ("2", "2", 2.0, 1.25, 1.0),
+    ("3", "3", 3.0, 1.25, 1.0),
+    ("4", "4", 4.0, 1.25, 1.0),
+    ("5", "5", 5.0, 1.25, 1.0),
+    ("6", "6", 6.0, 1.25, 1.0),
+    ("7", "7", 7.0, 1.25, 1.0),
+    ("8", "8", 8.0, 1.25, 1.0),
+    ("9", "9", 9.0, 1.25, 1.0),
+    ("0", "0", 10.0, 1.25, 1.0),
+    ("minus", "-", 11.0, 1.25, 1.0),
+    ("equal", "=", 12.0, 1.25, 1.0),
+    ("backspace", "Backspace", 13.0, 1.25, 2.0),
+    ("home", "Home", 15.0, 1.25, 1.0),
+    ("tab", "Tab", 0.0, 2.25, 1.5),
+    ("q", "Q", 1.5, 2.25, 1.0),
+    ("w", "W", 2.5, 2.25, 1.0),
+    ("e", "E", 3.5, 2.25, 1.0),
+    ("r", "R", 4.5, 2.25, 1.0),
+    ("t", "T", 5.5, 2.25, 1.0),
+    ("y", "Y", 6.5, 2.25, 1.0),
+    ("u", "U", 7.5, 2.25, 1.0),
+    ("i", "I", 8.5, 2.25, 1.0),
+    ("o", "O", 9.5, 2.25, 1.0),
+    ("p", "P", 10.5, 2.25, 1.0),
+    ("lbracket", "[", 11.5, 2.25, 1.0),
+    ("rbracket", "]", 12.5, 2.25, 1.0),
+    ("backslash", "\\", 13.5, 2.25, 1.5),
+    ("pgup", "PgUp", 15.0, 2.25, 1.0),
+    ("capslock", "Caps", 0.0, 3.25, 1.75),
+    ("a", "A", 1.75, 3.25, 1.0),
+    ("s", "S", 2.75, 3.25, 1.0),
+    ("d", "D", 3.75, 3.25, 1.0),
+    ("f", "F", 4.75, 3.25, 1.0),
+    ("g", "G", 5.75, 3.25, 1.0),
+    ("h", "H", 6.75, 3.25, 1.0),
+    ("j", "J", 7.75, 3.25, 1.0),
+    ("k", "K", 8.75, 3.25, 1.0),
+    ("l", "L", 9.75, 3.25, 1.0),
+    ("semicolon", ";", 10.75, 3.25, 1.0),
+    ("quote", "'", 11.75, 3.25, 1.0),
+    ("enter", "Enter", 12.75, 3.25, 2.25),
+    ("pgdn", "PgDn", 15.0, 3.25, 1.0),
+    ("lshift", "Shift", 0.0, 4.25, 2.25),
+    ("z", "Z", 2.25, 4.25, 1.0),
+    ("x", "X", 3.25, 4.25, 1.0),
+    ("c", "C", 4.25, 4.25, 1.0),
+    ("v", "V", 5.25, 4.25, 1.0),
+    ("b", "B", 6.25, 4.25, 1.0),
+    ("n", "N", 7.25, 4.25, 1.0),
+    ("m", "M", 8.25, 4.25, 1.0),
+    ("comma", ",", 9.25, 4.25, 1.0),
+    ("period", ".", 10.25, 4.25, 1.0),
+    ("slash", "/", 11.25, 4.25, 1.0),
+    ("rshift", "Shift", 12.25, 4.25, 1.75),
+    ("up", "↑", 14.0, 4.25, 1.0),
+    ("end", "End", 15.0, 4.25, 1.0),
+    ("lctrl", "Ctrl", 0.0, 5.25, 1.25),
+    ("win", "Win", 1.25, 5.25, 1.25),
+    ("lalt", "Alt", 2.5, 5.25, 1.25),
+    ("space", "", 3.75, 5.25, 6.25),
+    ("ralt", "Alt", 10.0, 5.25, 1.0),
+    ("fn", "Fn", 11.0, 5.25, 1.0),
+    ("rctrl", "Ctrl", 12.0, 5.25, 1.0),
+    ("left", "←", 13.0, 5.25, 1.0),
+    ("down", "↓", 14.0, 5.25, 1.0),
+    ("right", "→", 15.0, 5.25, 1.0),
+];
+
+pub fn layout_for(model: Model) -> &'static [(&'static str, &'static str, f32, f32, f32)] {
+    match model {
+        Model::Ak820Pro => LAYOUT,
+        Model::Ak820 => LAYOUT_AK820,
+    }
+}
+
 const WIDTH_UNITS: f32 = 16.0;
 const HEIGHT_UNITS: f32 = 6.25;
 
@@ -105,7 +199,7 @@ pub struct KeyClick {
 }
 
 /// Draw the keyboard filling the available width; returns the clicked key.
-pub fn keyboard(ui: &mut egui::Ui, look: impl Fn(&str) -> KeyLook) -> Option<KeyClick> {
+pub fn keyboard(ui: &mut egui::Ui, model: Model, look: impl Fn(&str) -> KeyLook) -> Option<KeyClick> {
     let width = ui.available_width().min(980.0);
     let unit = width / WIDTH_UNITS;
     let pad = unit * 0.06;
@@ -114,9 +208,16 @@ pub fn keyboard(ui: &mut egui::Ui, look: impl Fn(&str) -> KeyLook) -> Option<Key
     let visuals = ui.visuals();
     painter.rect_filled(rect.expand(unit * 0.25), CornerRadius::same(12), visuals.extreme_bg_color);
 
+    if model == Model::Ak820 {
+        let knob_center = Pos2::new(rect.left() + 15.5 * unit, rect.top() + 0.5 * unit);
+        let radius = unit * 0.42;
+        painter.circle_filled(knob_center, radius, Color32::from_gray(42));
+        painter.circle_stroke(knob_center, radius, Stroke::new(1.5_f32, visuals.widgets.noninteractive.bg_stroke.color));
+    }
+
     let hover = resp.hover_pos();
     let mut clicked = None;
-    for &(name, label, x, y, w) in LAYOUT {
+    for &(name, label, x, y, w) in layout_for(model) {
         let key_rect = Rect::from_min_size(
             Pos2::new(rect.left() + x * unit + pad, rect.top() + y * unit + pad),
             Vec2::new(w * unit - 2.0 * pad, unit - 2.0 * pad),

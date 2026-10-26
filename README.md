@@ -1,4 +1,4 @@
-# ak820 — AJAZZ AK820 Pro configurator for Linux and Windows
+# ak820 — AJAZZ AK820 & AK820 Pro configurator for Linux and Windows
 
 **English** · [Italiano](README.it.md)
 
@@ -12,7 +12,9 @@ Ready-made binaries, no Rust needed: grab the latest version from the
   `./install.sh --udev` inside the folder (installs into `~/.local` and adds the udev rule;
   see [Linux: permissions](#linux-permissions)).
 
-A single Rust program to configure the AJAZZ AK820 Pro keyboard without the official software:
+A single Rust program to configure the AJAZZ AK820 and AK820 Pro keyboards without the official software:
+
+- **Supported models**: AJAZZ AK820 Pro (wired/wireless with TFT screen) and AJAZZ AK820 (non-Pro, wired RGB with volume knob, VID `320F:505B`). Automatic model detection and tailored UI layout.
 
 - **Lighting**: all 20 effects, color, rainbow, brightness, speed, direction (moving effects have two directions)
 - **Per-key colors** (saved in the keyboard) and a live test animation
@@ -23,6 +25,7 @@ A single Rust program to configure the AJAZZ AK820 Pro keyboard without the offi
 - **System settings**: sleep, Fn mode, debounce, blocking Win / Alt+F4 / Alt+Tab
 - Works over the **USB cable** and, for lighting/keys/macros/clock/settings, also through the **2.4 GHz receiver**
 - **TOML profiles**: the whole configuration in one file, applied with one command
+- **Direct hardware read-back**: on the AK820 (non-Pro), read the active profile (lighting, custom colors, keymap, polling rate, NKRO) directly from keyboard memory (`ak820 read` / GUI read button)
 
 Changes are saved in the keyboard itself: they work on any computer, with nothing running.
 
@@ -131,6 +134,7 @@ library) has no file drag & drop on native Wayland; `AK820_WAYLAND=1` keeps nati
 
 ```bash
 ak820 list                                   # HID interfaces found
+ak820 read                                   # read active config from keyboard (AK820)
 ak820 keys                                   # key names, remap targets and effects
 
 ak820 light rolling --rainbow -b 5 -s 3      # rainbow wave
@@ -197,7 +201,8 @@ exchanged packets.
 
 - Bluetooth: the keyboard exposes no configuration interface.
 - Per-key colors and screen: USB cable only.
-- The configuration cannot be read from the keyboard (firmware limitation).
+- On AK820 Pro, the configuration cannot be read back from the keyboard (firmware limitation); on AK820 (non-Pro), full direct hardware read-back is supported.
+- Screen, clock and battery features apply only to AK820 Pro (AK820 non-Pro has no screen or battery).
 - Firmwares exposing `0xFF67` instead of `0xFF13` use a different protocol, not supported.
 
 ## Library

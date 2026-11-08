@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
 ### Added
 - **Theme** in System → Application: same as the system, light or dark. The choice is saved.
 
@@ -58,7 +60,8 @@ All notable changes to this project are documented here. The format follows
 - Two directions per moving effect, app icon, `install.sh` installer.
 - CI and release workflows with prebuilt Linux and Windows archives.
 
-[Unreleased]: https://github.com/deddroid/ak820-rs/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/deddroid/ak820-rs/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/deddroid/ak820-rs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/deddroid/ak820-rs/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/deddroid/ak820-rs/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/deddroid/ak820-rs/compare/v0.1.0...v0.1.1

@@ -147,9 +147,7 @@ fn main() -> eframe::Result {
 }
 
 fn app_icon() -> egui::IconData {
-    let img = image::load_from_memory(include_bytes!("../../assets/icon-256.png"))
-        .expect("embedded icon")
-        .to_rgba8();
+    let img = image::load_from_memory(include_bytes!("../../assets/icon-256.png")).expect("embedded icon").to_rgba8();
     let (width, height) = img.dimensions();
     egui::IconData { rgba: img.into_raw(), width, height }
 }
@@ -240,13 +238,98 @@ const KINDS: &[(Kind, &str, &str)] = &[
 ];
 
 const KEY_NAMES: &[&str] = &[
-    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u",
-    "v", "w", "x", "y", "z", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "f1", "f2", "f3", "f4", "f5",
-    "f6", "f7", "f8", "f9", "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18", "f19", "f20",
-    "f21", "f22", "f23", "f24", "enter", "esc", "backspace", "tab", "space", "minus", "equal", "lbracket",
-    "rbracket", "backslash", "semicolon", "quote", "grave", "comma", "period", "slash", "capslock",
-    "printscreen", "scrolllock", "pause", "insert", "home", "end", "pgup", "pgdn", "delete", "up", "down",
-    "left", "right", "numlock", "menu",
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "0",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11",
+    "f12",
+    "f13",
+    "f14",
+    "f15",
+    "f16",
+    "f17",
+    "f18",
+    "f19",
+    "f20",
+    "f21",
+    "f22",
+    "f23",
+    "f24",
+    "enter",
+    "esc",
+    "backspace",
+    "tab",
+    "space",
+    "minus",
+    "equal",
+    "lbracket",
+    "rbracket",
+    "backslash",
+    "semicolon",
+    "quote",
+    "grave",
+    "comma",
+    "period",
+    "slash",
+    "capslock",
+    "printscreen",
+    "scrolllock",
+    "pause",
+    "insert",
+    "home",
+    "end",
+    "pgup",
+    "pgdn",
+    "delete",
+    "up",
+    "down",
+    "left",
+    "right",
+    "numlock",
+    "menu",
 ];
 
 const MOUSE: &[(&str, &str, &str)] = &[
@@ -326,8 +409,7 @@ impl TargetEditor {
         match self.kind {
             Kind::Default => "default".into(),
             Kind::Key => {
-                let mut parts: Vec<&str> =
-                    MODS.iter().zip(self.mods).filter(|(_, on)| *on).map(|(m, _)| *m).collect();
+                let mut parts: Vec<&str> = MODS.iter().zip(self.mods).filter(|(_, on)| *on).map(|(m, _)| *m).collect();
                 if !self.key.is_empty() {
                     parts.push(&self.key);
                 }
@@ -418,7 +500,13 @@ struct App {
 }
 
 impl App {
-    fn new(settings: Settings, wake: Wake, tray_tx: Sender<TrayCmd>, tray_rx: Receiver<TrayCmd>, start_in_tray: bool) -> Self {
+    fn new(
+        settings: Settings,
+        wake: Wake,
+        tray_tx: Sender<TrayCmd>,
+        tray_rx: Receiver<TrayCmd>,
+        start_in_tray: bool,
+    ) -> Self {
         let (job_tx, job_rx) = channel();
         let (msg_tx, msg_rx) = channel();
         worker::spawn(job_rx, msg_tx, wake.clone());
@@ -473,8 +561,12 @@ impl App {
             new_profile: String::new(),
             renaming: None,
             confirm_delete: None,
-            shots: std::env::var_os("AK820_GUI_SHOTS")
-                .map(|d| Shots { dir: d.into(), index: 0, wait: 0, requested: false }),
+            shots: std::env::var_os("AK820_GUI_SHOTS").map(|d| Shots {
+                dir: d.into(),
+                index: 0,
+                wait: 0,
+                requested: false,
+            }),
             settings,
         };
         app.state = state;
@@ -506,9 +598,11 @@ impl App {
     fn set_tray(&mut self, on: bool) {
         if on && self.tray.is_none() {
             let names = self.profiles.iter().map(|(n, _)| n.clone()).collect();
-            self.tray = tray::spawn(self.tray_tx.clone(), self.wake.clone(), names, self.settings.active_profile.clone());
+            self.tray =
+                tray::spawn(self.tray_tx.clone(), self.wake.clone(), names, self.settings.active_profile.clone());
             if self.tray.is_none() {
-                self.log.push((t("The system tray is not available", "La tray di sistema non è disponibile").into(), true));
+                self.log
+                    .push((t("The system tray is not available", "La tray di sistema non è disponibile").into(), true));
             }
         } else if !on {
             self.tray = None;
@@ -531,7 +625,10 @@ impl App {
             })
             .collect();
         if let Some(tray) = &self.tray {
-            tray.set_profiles(self.profiles.iter().map(|(n, _)| n.clone()).collect(), self.settings.active_profile.clone());
+            tray.set_profiles(
+                self.profiles.iter().map(|(n, _)| n.clone()).collect(),
+                self.settings.active_profile.clone(),
+            );
         }
     }
 
@@ -651,16 +748,17 @@ impl App {
         title(
             ui,
             t("Lighting effects", "Effetti luce"),
-            t("The keyboard's built-in effects, saved in its memory.", "Gli effetti integrati della tastiera, salvati nella sua memoria."),
+            t(
+                "The keyboard's built-in effects, saved in its memory.",
+                "Gli effetti integrati della tastiera, salvati nella sua memoria.",
+            ),
         );
         card(ui, t("Effect", "Effetto"), |ui| {
             let modes: Vec<Mode> = Mode::ALL.iter().copied().filter(|m| *m != Mode::Custom).collect();
             egui::Grid::new("modes").spacing([8.0, 8.0]).show(ui, |ui| {
                 for (i, m) in modes.iter().enumerate() {
                     let selected = self.light.mode == *m;
-                    let b = Button::new(mode_label(*m))
-                        .selected(selected)
-                        .min_size(Vec2::new(130.0, 32.0));
+                    let b = Button::new(mode_label(*m)).selected(selected).min_size(Vec2::new(130.0, 32.0));
                     if ui.add(b).clicked() {
                         self.light.mode = *m;
                     }
@@ -683,7 +781,13 @@ impl App {
                             ui.checkbox(&mut self.light.rainbow, t("Rainbow", "Arcobaleno"));
                         });
                     } else {
-                        ui.label(RichText::new(t("this effect always uses every color", "questo effetto usa sempre tutti i colori")).weak());
+                        ui.label(
+                            RichText::new(t(
+                                "this effect always uses every color",
+                                "questo effetto usa sempre tutti i colori",
+                            ))
+                            .weak(),
+                        );
                     }
                     ui.end_row();
                     ui.label(t("Brightness", "Luminosità"));
@@ -703,7 +807,10 @@ impl App {
                             });
                         }
                         None => {
-                            ui.label(RichText::new(t("this effect has no direction", "questo effetto non ha una direzione")).weak());
+                            ui.label(
+                                RichText::new(t("this effect has no direction", "questo effetto non ha una direzione"))
+                                    .weak(),
+                            );
                         }
                     }
                     ui.end_row();
@@ -731,12 +838,7 @@ impl App {
             ),
         );
         let clicked = layout::keyboard(ui, |name| {
-            let color = self
-                .colors
-                .keys
-                .get(name)
-                .copied()
-                .unwrap_or(self.colors.base);
+            let color = self.colors.keys.get(name).copied().unwrap_or(self.colors.base);
             KeyLook { fill: color32(color), sub: None, dim: false, selected: false }
         });
         if let Some(c) = clicked {
@@ -795,7 +897,10 @@ impl App {
                 self.run(t("Per-key colors", "Colori per tasto"), Op::KeyColors(c), Some(s));
             }
             if ui
-                .add_enabled(!self.busy && self.wired(), Button::new(t("▶ Live rainbow demo (10 s)", "▶ Demo arcobaleno live (10 s)")))
+                .add_enabled(
+                    !self.busy && self.wired(),
+                    Button::new(t("▶ Live rainbow demo (10 s)", "▶ Demo arcobaleno live (10 s)")),
+                )
                 .on_hover_text(t("Real-time animation, not saved", "Animazione in tempo reale, non salvata"))
                 .clicked()
             {
@@ -859,7 +964,11 @@ impl App {
             return;
         };
         let label = LAYOUT.iter().find(|k| k.0 == key).map_or(key, |k| k.1);
-        let heading = format!("{}{}", if self.fn_layer { "Fn + " } else { "" }, if label.is_empty() { t("Space", "Spazio") } else { label });
+        let heading = format!(
+            "{}{}",
+            if self.fn_layer { "Fn + " } else { "" },
+            if label.is_empty() { t("Space", "Spazio") } else { label }
+        );
         card(ui, &heading, |ui| {
             ComboBox::from_id_salt("kind")
                 .selected_text(KINDS.iter().find(|k| k.0 == self.editor.kind).map_or("", |k| t(k.1, k.2)))
@@ -873,7 +982,10 @@ impl App {
             let e = &mut self.editor;
             match e.kind {
                 Kind::Default => {
-                    ui.label(t("The key goes back to its factory function.", "Il tasto torna alla sua funzione di fabbrica."));
+                    ui.label(t(
+                        "The key goes back to its factory function.",
+                        "Il tasto torna alla sua funzione di fabbrica.",
+                    ));
                 }
                 Kind::Key => {
                     ui.horizontal(|ui| {
@@ -912,7 +1024,10 @@ impl App {
                 }
                 Kind::Macro => {
                     if self.macros.is_empty() {
-                        ui.label(t("No macros: create one in the Macros tab.", "Nessuna macro: creane una nella scheda Macro."));
+                        ui.label(t(
+                            "No macros: create one in the Macros tab.",
+                            "Nessuna macro: creane una nella scheda Macro.",
+                        ));
                     }
                     let names: Vec<&str> = self.macros.keys().map(String::as_str).collect();
                     name_combo(ui, "macro", &mut e.macro_name, &names, false);
@@ -1077,13 +1192,20 @@ impl App {
                     ui.text_edit_singleline(&mut self.macro_name);
                     ui.end_row();
                     ui.label(t("Mode", "Modalità"));
-                    ComboBox::from_id_salt("macro-mode")
-                        .selected_text(macro_mode_label(self.macro_mode))
-                        .show_ui(ui, |ui| {
-                            for m in [MacroMode::Once, MacroMode::Repeat, MacroMode::Toggle, MacroMode::Hold, MacroMode::Step] {
+                    ComboBox::from_id_salt("macro-mode").selected_text(macro_mode_label(self.macro_mode)).show_ui(
+                        ui,
+                        |ui| {
+                            for m in [
+                                MacroMode::Once,
+                                MacroMode::Repeat,
+                                MacroMode::Toggle,
+                                MacroMode::Hold,
+                                MacroMode::Step,
+                            ] {
                                 ui.selectable_value(&mut self.macro_mode, m, macro_mode_label(m));
                             }
-                        });
+                        },
+                    );
                     ui.end_row();
                     if self.macro_mode == MacroMode::Repeat {
                         ui.label(t("Repetitions", "Ripetizioni"));
@@ -1103,8 +1225,8 @@ impl App {
                         "text:Hello · tap:ctrl+c · down:shift · up:shift · delay:100 · click:left",
                         "text:Ciao · tap:ctrl+c · down:shift · up:shift · delay:100 · click:left",
                     ))
-                        .small()
-                        .weak(),
+                    .small()
+                    .weak(),
                 );
                 let steps: Vec<String> =
                     self.macro_steps.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect();
@@ -1123,19 +1245,27 @@ impl App {
                 }
                 ui.horizontal(|ui| {
                     let name = self.macro_name.trim().to_string();
-                    if ui.add_enabled(valid.is_ok() && !name.is_empty(), Button::new(t("💾 Save macro", "💾 Salva macro"))).clicked() {
+                    if ui
+                        .add_enabled(
+                            valid.is_ok() && !name.is_empty(),
+                            Button::new(t("💾 Save macro", "💾 Salva macro")),
+                        )
+                        .clicked()
+                    {
                         if let Some(old) = self.macro_sel.take().filter(|o| *o != name) {
                             self.macros.remove(&old);
                             rename_macro_refs(&mut self.keymap, &old, &name);
                         }
-                        self.macros.insert(name.clone(), MacroDef { steps, mode: self.macro_mode, count: self.macro_count });
+                        self.macros
+                            .insert(name.clone(), MacroDef { steps, mode: self.macro_mode, count: self.macro_count });
                         self.macro_sel = Some(name);
                         self.macro_error = None;
                     }
                     if let Some(sel) = self.macro_sel.clone() {
                         if ui.button(t("🗑 Delete", "🗑 Elimina")).clicked() {
                             let target = format!("macro:{sel}");
-                            let used = self.keymap.normal.values().chain(self.keymap.fn_layer.values()).any(|t| *t == target);
+                            let used =
+                                self.keymap.normal.values().chain(self.keymap.fn_layer.values()).any(|t| *t == target);
                             if used {
                                 self.macro_error = Some(
                                     t(
@@ -1198,7 +1328,13 @@ impl App {
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, CornerRadius::same(8), Color32::BLACK);
         if self.source.is_empty() {
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, t("no image", "nessuna immagine"), FontId::proportional(14.0), Color32::GRAY);
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                t("no image", "nessuna immagine"),
+                FontId::proportional(14.0),
+                Color32::GRAY,
+            );
             return;
         }
         let textures = self.textures.get_or_insert_with(|| {
@@ -1206,7 +1342,10 @@ impl App {
                 .iter()
                 .enumerate()
                 .map(|(i, (img, _))| {
-                    let ci = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw());
+                    let ci = egui::ColorImage::from_rgba_unmultiplied(
+                        [img.width() as usize, img.height() as usize],
+                        img.as_raw(),
+                    );
                     ctx.load_texture(format!("screen{i}"), ci, TextureOptions::LINEAR)
                 })
                 .collect()
@@ -1244,7 +1383,11 @@ impl App {
                         // Don't scroll the page while zooming.
                         ui.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
                     }
-                    ctx.set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+                    ctx.set_cursor_icon(if resp.dragged() {
+                        egui::CursorIcon::Grabbing
+                    } else {
+                        egui::CursorIcon::Grab
+                    });
                 }
             }
             Fit::Pad => {
@@ -1256,7 +1399,12 @@ impl App {
                 painter.image(tex, rect, full, Color32::WHITE);
             }
         }
-        painter.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0_f32, Color32::from_gray(90)), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            CornerRadius::same(8),
+            Stroke::new(1.0_f32, Color32::from_gray(90)),
+            egui::StrokeKind::Inside,
+        );
         if self.source.len() > 1 {
             ctx.request_repaint_after(Duration::from_millis(15));
         }
@@ -1308,7 +1456,12 @@ impl App {
                 if self.fit == Fit::Crop && !self.source.is_empty() {
                     ui.horizontal(|ui| {
                         ui.label("Zoom");
-                        let r = ui.add(Slider::new(&mut self.crop.zoom, 1.0..=screen::MAX_ZOOM).logarithmic(true).fixed_decimals(1).suffix("×"));
+                        let r = ui.add(
+                            Slider::new(&mut self.crop.zoom, 1.0..=screen::MAX_ZOOM)
+                                .logarithmic(true)
+                                .fixed_decimals(1)
+                                .suffix("×"),
+                        );
                         if r.changed() {
                             self.crop = self.crop.clamped(self.source_size.0, self.source_size.1);
                         }
@@ -1355,7 +1508,10 @@ impl App {
                         }
                     }
                 });
-                if ui.add_enabled(!self.busy && self.connected(), Button::new(t("🕒 Show clock", "🕒 Mostra orologio"))).clicked() {
+                if ui
+                    .add_enabled(!self.busy && self.connected(), Button::new(t("🕒 Show clock", "🕒 Mostra orologio")))
+                    .clicked()
+                {
                     self.run(t("Clock", "Orologio"), Op::Clock, None);
                 }
             });
@@ -1436,7 +1592,13 @@ impl App {
                 let format = t("%Y-%m-%d  %H:%M:%S", "%d/%m/%Y  %H:%M:%S");
                 ui.label(RichText::new(chrono::Local::now().format(format).to_string()).monospace().size(18.0));
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
-                if ui.add_enabled(!self.busy && self.connected(), Button::new(t("🕒 Sync with the PC", "🕒 Sincronizza con il PC"))).clicked() {
+                if ui
+                    .add_enabled(
+                        !self.busy && self.connected(),
+                        Button::new(t("🕒 Sync with the PC", "🕒 Sincronizza con il PC")),
+                    )
+                    .clicked()
+                {
                     self.run("Orologio", Op::Clock, None);
                 }
             });
@@ -1446,7 +1608,12 @@ impl App {
             egui::Grid::new("system").num_columns(2).spacing([24.0, 12.0]).show(ui, |ui| {
                 ui.label(t("Sleep (on battery)", "Sospensione (a batteria)"));
                 ui.horizontal(|ui| {
-                    for (v, l) in [(SleepTime::Never, t("Never", "Mai")), (SleepTime::Min1, "1 min"), (SleepTime::Min5, "5 min"), (SleepTime::Min30, "30 min")] {
+                    for (v, l) in [
+                        (SleepTime::Never, t("Never", "Mai")),
+                        (SleepTime::Min1, "1 min"),
+                        (SleepTime::Min5, "5 min"),
+                        (SleepTime::Min30, "30 min"),
+                    ] {
                         ui.selectable_value(&mut self.system.sleep, v, l);
                     }
                 });
@@ -1483,7 +1650,10 @@ impl App {
                 let enabled = !self.busy && self.status == Status::Receiver;
                 if ui
                     .add_enabled(enabled, Button::new(t("🔋 Read battery", "🔋 Leggi batteria")))
-                    .on_disabled_hover_text(t("Available only with the 2.4 GHz receiver", "Disponibile solo con il ricevitore 2.4 GHz"))
+                    .on_disabled_hover_text(t(
+                        "Available only with the 2.4 GHz receiver",
+                        "Disponibile solo con il ricevitore 2.4 GHz",
+                    ))
                     .clicked()
                 {
                     self.run(t("Battery", "Batteria"), Op::Battery, None);
@@ -1493,7 +1663,10 @@ impl App {
                         ui.add(egui::ProgressBar::new(v as f32 / 100.0).text(format!("{v}%")).desired_width(200.0));
                     }
                     Some(None) => {
-                        ui.label(t("Level not available (keyboard asleep?)", "Livello non disponibile (tastiera in standby?)"));
+                        ui.label(t(
+                            "Level not available (keyboard asleep?)",
+                            "Livello non disponibile (tastiera in standby?)",
+                        ));
                     }
                     None => {}
                 }
@@ -1530,7 +1703,11 @@ impl App {
                 );
                 let name = self.new_profile.trim().to_string();
                 let exists = self.profiles.iter().any(|(n, _)| *n == name);
-                let label = if exists { t("💾 Overwrite", "💾 Sovrascrivi") } else { t("💾 Save current configuration", "💾 Salva la configurazione attuale") };
+                let label = if exists {
+                    t("💾 Overwrite", "💾 Sovrascrivi")
+                } else {
+                    t("💾 Save current configuration", "💾 Salva la configurazione attuale")
+                };
                 if ui
                     .add_enabled(!name.is_empty(), Button::new(label))
                     .on_hover_text(t(
@@ -1699,7 +1876,13 @@ impl App {
         ui.add_space(8.0);
         card(ui, t("Files", "File"), |ui| {
             ui.horizontal(|ui| {
-                if ui.add_enabled(!self.busy && self.connected(), Button::new(t("📂 Import and apply…", "📂 Importa e applica…"))).clicked() {
+                if ui
+                    .add_enabled(
+                        !self.busy && self.connected(),
+                        Button::new(t("📂 Import and apply…", "📂 Importa e applica…")),
+                    )
+                    .clicked()
+                {
                     if let Some(p) = rfd::FileDialog::new().add_filter(t("Profile", "Profilo"), &["toml"]).pick_file() {
                         match Profile::load(&p).and_then(|prof| prof.validate().map(|_| prof)) {
                             Ok(prof) => {
@@ -1729,7 +1912,10 @@ impl App {
                     }
                 }
                 if ui
-                    .add_enabled(!self.busy && self.connected(), Button::new(t("🔁 Resend everything", "🔁 Reinvia tutto")))
+                    .add_enabled(
+                        !self.busy && self.connected(),
+                        Button::new(t("🔁 Resend everything", "🔁 Reinvia tutto")),
+                    )
                     .on_hover_text(t(
                         "Send the last saved configuration to the keyboard again",
                         "Rimanda alla tastiera l'ultima configurazione salvata",
@@ -1756,12 +1942,19 @@ impl App {
             ));
             ui.horizontal(|ui| {
                 if !self.confirm_reset {
-                    if ui.add_enabled(!self.busy && self.connected(), Button::new(t("Reset…", "Ripristina…"))).clicked() {
+                    if ui.add_enabled(!self.busy && self.connected(), Button::new(t("Reset…", "Ripristina…"))).clicked()
+                    {
                         self.confirm_reset = true;
                     }
                 } else {
                     ui.colored_label(WARN, t("Are you sure?", "Sicuro?"));
-                    if ui.add(Button::new(RichText::new(t("Yes, reset", "Sì, ripristina")).color(Color32::WHITE)).fill(ERR)).clicked() {
+                    if ui
+                        .add(
+                            Button::new(RichText::new(t("Yes, reset", "Sì, ripristina")).color(Color32::WHITE))
+                                .fill(ERR),
+                        )
+                        .clicked()
+                    {
                         self.confirm_reset = false;
                         let p = Profile {
                             sync_clock: Some(true),
@@ -1785,7 +1978,9 @@ impl App {
             ui.label(RichText::new(profile::state_path().display().to_string()).monospace().weak());
             let text = toml::to_string_pretty(&self.state).unwrap_or_default();
             egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                ui.add(egui::Label::new(RichText::new(if text.is_empty() { t("(empty)", "(vuota)").into() } else { text }).monospace()));
+                ui.add(egui::Label::new(
+                    RichText::new(if text.is_empty() { t("(empty)", "(vuota)").into() } else { text }).monospace(),
+                ));
             });
         });
     }
@@ -1796,19 +1991,25 @@ impl App {
         egui::TopBottomPanel::bottom("status").exact_height(38.0).show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
                 let (color, text) = match &self.status {
-                    Status::Searching => (Color32::GRAY, t("Looking for the keyboard…", "Ricerca tastiera…").to_string()),
+                    Status::Searching => {
+                        (Color32::GRAY, t("Looking for the keyboard…", "Ricerca tastiera…").to_string())
+                    }
                     Status::Wired(pid) => {
                         (OK, format!("{} (PID {pid:04x})", t("Connected via USB cable", "Collegata via cavo USB")))
                     }
-                    Status::Receiver => (OK, t("Connected via 2.4 GHz receiver", "Collegata via ricevitore 2.4 GHz").into()),
+                    Status::Receiver => {
+                        (OK, t("Connected via 2.4 GHz receiver", "Collegata via ricevitore 2.4 GHz").into())
+                    }
                     Status::Bluetooth => (
                         WARN,
-                        t("On Bluetooth: use the cable or the receiver", "In Bluetooth: usa il cavo o il ricevitore").into(),
+                        t("On Bluetooth: use the cable or the receiver", "In Bluetooth: usa il cavo o il ricevitore")
+                            .into(),
                     ),
                     Status::NotFound => (ERR, t("Keyboard not found", "Tastiera non trovata").into()),
                     Status::Permission => (
                         WARN,
-                        t("Missing permissions to access the keyboard", "Permessi mancanti per accedere alla tastiera").into(),
+                        t("Missing permissions to access the keyboard", "Permessi mancanti per accedere alla tastiera")
+                            .into(),
                     ),
                     Status::Error(e) => (ERR, format!("{}: {e}", t("Error", "Errore"))),
                 };
@@ -1831,7 +2032,9 @@ impl App {
                         self.show_log = !self.show_log;
                     }
                     if self.busy {
-                        ui.add(egui::ProgressBar::new(self.progress).desired_width(160.0).animate(self.progress == 0.0));
+                        ui.add(
+                            egui::ProgressBar::new(self.progress).desired_width(160.0).animate(self.progress == 0.0),
+                        );
                         ui.spinner();
                     }
                     if let Some((msg, err)) = self.log.last() {
@@ -1845,17 +2048,14 @@ impl App {
 
     fn log_window(&mut self, ctx: &egui::Context) {
         let mut open = self.show_log;
-        egui::Window::new(t("Log", "Registro"))
-            .open(&mut open)
-            .default_size([520.0, 260.0])
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
-                    for (m, err) in &self.log {
-                        let t = RichText::new(m).monospace();
-                        ui.label(if *err { t.color(ERR) } else { t });
-                    }
-                });
+        egui::Window::new(t("Log", "Registro")).open(&mut open).default_size([520.0, 260.0]).show(ctx, |ui| {
+            egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                for (m, err) in &self.log {
+                    let t = RichText::new(m).monospace();
+                    ui.label(if *err { t.color(ERR) } else { t });
+                }
             });
+        });
         self.show_log = open;
     }
 
@@ -1903,7 +2103,12 @@ impl App {
             let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop")));
             let rect = ctx.screen_rect();
             painter.rect_filled(rect, CornerRadius::ZERO, Color32::from_black_alpha(170));
-            painter.rect_stroke(rect.shrink(16.0), CornerRadius::same(16), Stroke::new(3.0_f32, ACCENT), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                rect.shrink(16.0),
+                CornerRadius::same(16),
+                Stroke::new(3.0_f32, ACCENT),
+                egui::StrokeKind::Inside,
+            );
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,

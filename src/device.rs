@@ -64,10 +64,8 @@ pub fn list_interfaces() -> Result<Vec<InterfaceInfo>> {
 }
 
 fn find<'a>(api: &'a HidApi, pids: &[u16], usage_page: u16, interface: i32) -> Option<&'a DeviceInfo> {
-    let candidates: Vec<&DeviceInfo> = api
-        .device_list()
-        .filter(|d| d.vendor_id() == p::VID && pids.contains(&d.product_id()))
-        .collect();
+    let candidates: Vec<&DeviceInfo> =
+        api.device_list().filter(|d| d.vendor_id() == p::VID && pids.contains(&d.product_id())).collect();
     candidates
         .iter()
         .find(|d| d.usage_page() == usage_page)
@@ -97,8 +95,8 @@ impl Keyboard {
         if let Some(info) = find(&api, p::WIRED_PIDS, p::CONFIG_USAGE_PAGE, p::CONFIG_INTERFACE) {
             let pid = info.product_id();
             let config = info.open_device(&api).map_err(open_error)?;
-            let data_path = find(&api, p::WIRED_PIDS, p::DATA_USAGE_PAGE, p::DATA_INTERFACE)
-                .map(|d| d.path().to_owned());
+            let data_path =
+                find(&api, p::WIRED_PIDS, p::DATA_USAGE_PAGE, p::DATA_INTERFACE).map(|d| d.path().to_owned());
             return Ok(Keyboard { link: Link::Wired { config, data_path }, api, pid, debug });
         }
         if let Some(info) = find(&api, &[p::RECEIVER_PID], p::RECEIVER_USAGE_PAGE, p::RECEIVER_INTERFACE) {
@@ -106,9 +104,7 @@ impl Keyboard {
             let dev = info.open_device(&api).map_err(open_error)?;
             return Ok(Keyboard { link: Link::Receiver(dev), api, pid, debug });
         }
-        let bt = api
-            .device_list()
-            .any(|d| d.vendor_id() == p::VID && d.product_id() == p::BLUETOOTH_PID);
+        let bt = api.device_list().any(|d| d.vendor_id() == p::VID && d.product_id() == p::BLUETOOTH_PID);
         Err(Error::NotFound(if bt {
             "the keyboard is connected via Bluetooth, which cannot be configured: use the USB cable or the 2.4 GHz receiver".into()
         } else {
@@ -138,9 +134,9 @@ impl Keyboard {
     fn config(&self) -> Result<&HidDevice> {
         match &self.link {
             Link::Wired { config, .. } => Ok(config),
-            Link::Receiver(_) => Err(Error::Unsupported(
-                "this needs the USB cable (not supported through the 2.4 GHz receiver)".into(),
-            )),
+            Link::Receiver(_) => {
+                Err(Error::Unsupported("this needs the USB cable (not supported through the 2.4 GHz receiver)".into()))
+            }
         }
     }
 
@@ -367,9 +363,8 @@ impl Keyboard {
             self.config()?;
             unreachable!()
         };
-        let path = data_path
-            .as_ref()
-            .ok_or_else(|| Error::NotFound("screen data interface (0xFF68) not found".into()))?;
+        let path =
+            data_path.as_ref().ok_or_else(|| Error::NotFound("screen data interface (0xFF68) not found".into()))?;
         let data = self.api.open_path(path).map_err(open_error)?;
         let n = blocks.len();
         self.command(&p::control(cmd::BEGIN, 0, 0))?;
@@ -395,9 +390,7 @@ impl Keyboard {
     /// Battery level in %, only available through the 2.4 GHz receiver.
     pub fn battery(&self) -> Result<Option<u8>> {
         let Link::Receiver(dev) = &self.link else {
-            return Err(Error::Unsupported(
-                "the battery level can only be read through the 2.4 GHz receiver".into(),
-            ));
+            return Err(Error::Unsupported("the battery level can only be read through the 2.4 GHz receiver".into()));
         };
         let frame = p::rf_frames(rf::BATTERY, &[0], None)[0];
         for _ in 0..2 {

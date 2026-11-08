@@ -89,11 +89,7 @@ impl Crop {
     /// The same window with its center moved back inside the image.
     pub fn clamped(self, w: u32, h: u32) -> Crop {
         let (x0, y0, side) = self.rect(w, h);
-        Crop {
-            zoom: self.zoom.clamp(1.0, MAX_ZOOM),
-            x: (x0 + side / 2.0) / w as f32,
-            y: (y0 + side / 2.0) / h as f32,
-        }
+        Crop { zoom: self.zoom.clamp(1.0, MAX_ZOOM), x: (x0 + side / 2.0) / w as f32, y: (y0 + side / 2.0) / h as f32 }
     }
 }
 

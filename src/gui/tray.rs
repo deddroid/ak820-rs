@@ -18,9 +18,7 @@ pub enum TrayCmd {
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 fn icon_rgba() -> (Vec<u8>, u32, u32) {
-    let img = image::load_from_memory(include_bytes!("../../assets/icon-64.png"))
-        .expect("embedded icon")
-        .to_rgba8();
+    let img = image::load_from_memory(include_bytes!("../../assets/icon-64.png")).expect("embedded icon").to_rgba8();
     let (w, h) = img.dimensions();
     (img.into_raw(), w, h)
 }
@@ -70,7 +68,12 @@ mod imp {
         }
         fn menu(&self) -> Vec<MenuItem<Self>> {
             let profiles: Vec<MenuItem<Self>> = if self.profiles.is_empty() {
-                vec![StandardItem { label: t("(no saved profiles)", "(nessun profilo salvato)").into(), enabled: false, ..Default::default() }.into()]
+                vec![StandardItem {
+                    label: t("(no saved profiles)", "(nessun profilo salvato)").into(),
+                    enabled: false,
+                    ..Default::default()
+                }
+                .into()]
             } else {
                 self.profiles
                     .iter()
@@ -79,7 +82,9 @@ mod imp {
                         CheckmarkItem {
                             label: name.replace('_', "__"),
                             checked: self.active.as_deref() == Some(name),
-                            activate: Box::new(move |this: &mut Self| send(&this.tx, &this.wake, TrayCmd::Apply(n.clone()))),
+                            activate: Box::new(move |this: &mut Self| {
+                                send(&this.tx, &this.wake, TrayCmd::Apply(n.clone()))
+                            }),
                             ..Default::default()
                         }
                         .into()
@@ -204,12 +209,7 @@ mod imp {
             *ids.lock().unwrap() = new_ids;
             let (rgba, w, h) = icon_rgba();
             let tray = Icon::from_rgba(rgba, w, h).ok().and_then(|icon| {
-                TrayIconBuilder::new()
-                    .with_menu(Box::new(menu))
-                    .with_tooltip("AK820 Pro")
-                    .with_icon(icon)
-                    .build()
-                    .ok()
+                TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip("AK820 Pro").with_icon(icon).build().ok()
             });
             let Some(tray) = tray else {
                 let _ = ready_tx.send(None);

@@ -111,9 +111,7 @@ pub fn key_grid() -> Vec<(u8, f32, f32)> {
         .enumerate()
         .flat_map(|(y, r)| {
             let n = r.len();
-            r.iter()
-                .enumerate()
-                .map(move |(x, &i)| (i, x as f32 / (n - 1) as f32, y as f32 / (nrows - 1) as f32))
+            r.iter().enumerate().map(move |(x, &i)| (i, x as f32 / (n - 1) as f32, y as f32 / (nrows - 1) as f32))
         })
         .collect()
 }

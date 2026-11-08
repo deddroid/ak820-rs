@@ -86,9 +86,27 @@ fn delay(ms: u16) -> [u8; 4] {
 /// US-layout keys for a character: `(needs shift, key name)`.
 fn char_key(c: char) -> Option<(bool, String)> {
     const SHIFTED: &[(char, char)] = &[
-        ('!', '1'), ('@', '2'), ('#', '3'), ('$', '4'), ('%', '5'), ('^', '6'), ('&', '7'),
-        ('*', '8'), ('(', '9'), (')', '0'), ('_', '-'), ('+', '='), ('{', '['), ('}', ']'),
-        ('|', '\\'), (':', ';'), ('"', '\''), ('~', '`'), ('<', ','), ('>', '.'), ('?', '/'),
+        ('!', '1'),
+        ('@', '2'),
+        ('#', '3'),
+        ('$', '4'),
+        ('%', '5'),
+        ('^', '6'),
+        ('&', '7'),
+        ('*', '8'),
+        ('(', '9'),
+        (')', '0'),
+        ('_', '-'),
+        ('+', '='),
+        ('{', '['),
+        ('}', ']'),
+        ('|', '\\'),
+        (':', ';'),
+        ('"', '\''),
+        ('~', '`'),
+        ('<', ','),
+        ('>', '.'),
+        ('?', '/'),
     ];
     match c {
         ' ' => Some((false, "space".into())),
@@ -149,9 +167,8 @@ pub fn events(steps: &[String]) -> Result<Vec<[u8; 4]>, Error> {
                 out.push(delay(STEP_DELAY_MS));
             }
             "delay" => {
-                let ms: u16 = arg
-                    .parse()
-                    .map_err(|_| Error::Invalid(format!("bad delay in '{step}' (0..65535 ms)")))?;
+                let ms: u16 =
+                    arg.parse().map_err(|_| Error::Invalid(format!("bad delay in '{step}' (0..65535 ms)")))?;
                 out.push(delay(ms));
             }
             "click" | "mouse-down" | "mouse-up" => {

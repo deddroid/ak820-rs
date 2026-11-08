@@ -191,14 +191,7 @@ pub struct SystemSettings {
 impl Default for SystemSettings {
     /// Factory values of the official driver.
     fn default() -> Self {
-        Self {
-            block_win: false,
-            block_alt_f4: false,
-            block_alt_tab: false,
-            fn_toggle: false,
-            sleep: 2,
-            response: 2,
-        }
+        Self { block_win: false, block_alt_f4: false, block_alt_tab: false, fn_toggle: false, sleep: 2, response: 2 }
     }
 }
 

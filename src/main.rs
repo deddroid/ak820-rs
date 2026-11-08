@@ -194,9 +194,7 @@ fn parse_macro_mode(s: &str) -> Result<MacroMode, String> {
 }
 
 fn split_assign(a: &str) -> Result<(&str, &str)> {
-    a.split_once('=')
-        .filter(|(k, _)| !k.is_empty())
-        .with_context(|| format!("'{a}' must look like KEY=VALUE"))
+    a.split_once('=').filter(|(k, _)| !k.is_empty()).with_context(|| format!("'{a}' must look like KEY=VALUE"))
 }
 
 fn open() -> Result<Keyboard> {
@@ -256,9 +254,7 @@ fn print_keymap(state: &Profile) {
 }
 
 fn print_keys() {
-    let names: Vec<String> = keys::all_lights()
-        .map(|(n, _)| n.to_string())
-        .collect();
+    let names: Vec<String> = keys::all_lights().map(|(n, _)| n.to_string()).collect();
     println!("Physical keys (remap sources, per-key colors):\n  {}\n", names.join(" "));
     println!("Remap targets:");
     println!("  key            a..z 0..9 f1..f24 enter esc backspace tab space minus equal lbracket");
@@ -438,7 +434,10 @@ fn run(cli: Cli) -> Result<()> {
                     send_keymap(&open()?, &state)?;
                 }
                 save_state(&state)?;
-                println!("Macro '{name}' saved{}.", if used { " and sent" } else { "; assign it with `ak820 remap KEY=macro:NAME`" });
+                println!(
+                    "Macro '{name}' saved{}.",
+                    if used { " and sent" } else { "; assign it with `ak820 remap KEY=macro:NAME`" }
+                );
             }
             MacroAction::Rm { name } => {
                 let target = format!("macro:{name}");

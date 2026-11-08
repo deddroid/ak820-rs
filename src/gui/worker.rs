@@ -114,7 +114,10 @@ impl Worker {
             Ok(()) => {
                 if let Some(state) = &job.new_state {
                     if let Err(e) = state.save(&profile::state_path()) {
-                        self.send(Msg::Log { text: format!("{}: {e}", t("Could not save the state", "Impossibile salvare lo stato")), error: true });
+                        self.send(Msg::Log {
+                            text: format!("{}: {e}", t("Could not save the state", "Impossibile salvare lo stato")),
+                            error: true,
+                        });
                     }
                 }
                 self.log(format!("{}: {}", job.title, t("done", "fatto")));

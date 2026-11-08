@@ -65,10 +65,7 @@ pub fn init(saved: Option<Lang>) -> Lang {
 
 fn system_lang() -> Lang {
     // POSIX precedence: the first non-empty variable wins.
-    let env = ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .iter()
-        .filter_map(|v| std::env::var(v).ok())
-        .find(|v| !v.is_empty());
+    let env = ["LC_ALL", "LC_MESSAGES", "LANG"].iter().filter_map(|v| std::env::var(v).ok()).find(|v| !v.is_empty());
     #[cfg(windows)]
     let env = env.or_else(windows_locale);
     match env.as_deref() {

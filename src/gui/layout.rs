@@ -138,11 +138,8 @@ pub fn keyboard(ui: &mut egui::Ui, look: impl Fn(&str) -> KeyLook) -> Option<Key
         painter.rect_stroke(key_rect, CornerRadius::same(5), stroke, StrokeKind::Inside);
 
         let text_color = contrast(fill);
-        let label_pos = if l.sub.is_some() {
-            key_rect.center() - Vec2::new(0.0, unit * 0.15)
-        } else {
-            key_rect.center()
-        };
+        let label_pos =
+            if l.sub.is_some() { key_rect.center() - Vec2::new(0.0, unit * 0.15) } else { key_rect.center() };
         let size = if label.chars().count() > 3 { unit * 0.2 } else { unit * 0.27 };
         painter.text(label_pos, Align2::CENTER_CENTER, label, FontId::proportional(size), text_color);
         if let Some(sub) = &l.sub {

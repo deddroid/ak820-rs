@@ -90,7 +90,11 @@ mod win {
         } else {
             // SAFETY: valid NUL-terminated strings.
             let r = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), value.as_ptr()) };
-            if r == 2 { 0 } else { r } // ERROR_FILE_NOT_FOUND: already off
+            if r == 2 {
+                0
+            } else {
+                r
+            } // ERROR_FILE_NOT_FOUND: already off
         };
         if r == 0 {
             Ok(())

@@ -177,21 +177,16 @@ impl Keymap {
             let mut slots = Vec::new();
             for (key, target) in map {
                 let pos = keys::check_remappable(key, fn_layer)?;
-                let slot = keys::encode_target(target, named, &mut list)
-                    .map_err(|e| Error::Invalid(format!("{key}: {e}")))?;
+                let slot =
+                    keys::encode_target(target, named, &mut list).map_err(|e| Error::Invalid(format!("{key}: {e}")))?;
                 slots.push((pos, slot));
             }
             Ok(protocol::table(slots))
         };
         let normal = layer(&self.normal, false)?;
         let fn_layer = layer(&self.fn_layer, true)?;
-        let macros = list
-            .iter()
-            .map(|m| macros::events(&m.steps))
-            .collect::<Result<Vec<_>>>()?;
-        if macros::block(&macros, protocol::PACKET).is_none()
-            || macros::block(&macros, protocol::RF_CHUNK).is_none()
-        {
+        let macros = list.iter().map(|m| macros::events(&m.steps)).collect::<Result<Vec<_>>>()?;
+        if macros::block(&macros, protocol::PACKET).is_none() || macros::block(&macros, protocol::RF_CHUNK).is_none() {
             return Err(Error::Invalid("the macros do not fit in the keyboard memory (3.5 KB)".into()));
         }
         Ok(CompiledKeymap { normal, fn_layer, macros })
@@ -214,8 +209,7 @@ impl Profile {
     pub fn load(path: &Path) -> Result<Profile> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error::Invalid(format!("cannot read {}: {e}", path.display())))?;
-        let mut p: Profile = toml::from_str(&text)
-            .map_err(|e| Error::Invalid(format!("{}: {e}", path.display())))?;
+        let mut p: Profile = toml::from_str(&text).map_err(|e| Error::Invalid(format!("{}: {e}", path.display())))?;
         if let (Some(s), Some(dir)) = (p.screen.as_mut(), path.parent()) {
             if s.image.is_relative() {
                 s.image = dir.join(&s.image);
@@ -333,10 +327,7 @@ pub fn profiles_dir() -> PathBuf {
     if let Some(p) = std::env::var_os("AK820_PROFILES") {
         return PathBuf::from(p);
     }
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("ak820")
-        .join("profiles")
+    dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("ak820").join("profiles")
 }
 
 fn check_name(name: &str) -> Result<()> {
@@ -435,10 +426,7 @@ pub fn state_path() -> PathBuf {
     if let Some(p) = std::env::var_os("AK820_STATE") {
         return PathBuf::from(p);
     }
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("ak820")
-        .join("state.toml")
+    dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("ak820").join("state.toml")
 }
 
 pub fn load_state() -> Profile {
@@ -473,11 +461,8 @@ mod tests {
 
     #[test]
     fn key_colors_resolve() {
-        let c = KeyColors {
-            base: Rgb(0, 0, 32),
-            brightness: 5,
-            keys: BTreeMap::from([("w".to_string(), Rgb(255, 0, 0))]),
-        };
+        let c =
+            KeyColors { base: Rgb(0, 0, 32), brightness: 5, keys: BTreeMap::from([("w".to_string(), Rgb(255, 0, 0))]) };
         let r = c.resolve().unwrap();
         assert_eq!(r.len(), 81);
         assert!(r.contains(&(39, Rgb(255, 0, 0))));

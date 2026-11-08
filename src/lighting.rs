@@ -248,14 +248,7 @@ fn mid_level() -> u8 {
 
 impl Lighting {
     pub fn new(mode: Mode) -> Self {
-        Lighting {
-            mode,
-            color: white(),
-            rainbow: false,
-            brightness: MAX_LEVEL,
-            speed: 3,
-            direction: Direction::Right,
-        }
+        Lighting { mode, color: white(), rainbow: false, brightness: MAX_LEVEL, speed: 3, direction: Direction::Right }
     }
 
     /// Factory effect: rainbow wave, brightness 5, speed 3.

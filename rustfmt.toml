@@ -1,0 +1,3 @@
+# Closest to the hand-formatted style the project started with.
+max_width = 120
+use_small_heuristics = "Max"

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-08
+
 ### Added
 - Support for the AJAZZ AK820 (non-Pro, wired RGB, `320f:505b`): lighting, per-key colors,
   live demo, remapping on the normal layer, macros, debounce, Win lock, polling rate, NKRO,
@@ -50,7 +52,8 @@ All notable changes to this project are documented here. The format follows
 - Two directions per moving effect, app icon, `install.sh` installer.
 - CI and release workflows with prebuilt Linux and Windows archives.
 
-[Unreleased]: https://github.com/deddroid/ak820-rs/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/deddroid/ak820-rs/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/deddroid/ak820-rs/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/deddroid/ak820-rs/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/deddroid/ak820-rs/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/deddroid/ak820-rs/releases/tag/v0.1.0

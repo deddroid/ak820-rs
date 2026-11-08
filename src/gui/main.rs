@@ -6,7 +6,9 @@ mod autostart;
 mod i18n;
 mod instance;
 mod layout;
+mod macro_page;
 mod settings;
+mod shortcuts;
 mod theme;
 mod tray;
 mod worker;
@@ -192,6 +194,7 @@ enum Tab {
     Screen,
     System,
     Profiles,
+    Shortcuts,
 }
 
 /// `(tab, icon, English, Italian)`; screenshot files are named after the English label.
@@ -203,6 +206,7 @@ const TABS: &[(Tab, &str, &str, &str)] = &[
     (Tab::Screen, "🖼", "Screen", "Display"),
     (Tab::System, "⚙", "System", "Sistema"),
     (Tab::Profiles, "📁", "Profiles", "Profili"),
+    (Tab::Shortcuts, "⚡", "Shortcuts", "Scorciatoie"),
 ];
 
 fn mode_label(m: Mode) -> &'static str {
@@ -502,11 +506,11 @@ struct App {
     key_error: Option<String>,
 
     macro_sel: Option<String>,
+    /// Name field of the macro editor (applied when valid).
     macro_name: String,
-    macro_steps: String,
-    macro_mode: MacroMode,
-    macro_count: u8,
     macro_error: Option<String>,
+    /// Layer and key picked in the macro editor's "Assign" row.
+    macro_assign: (bool, String),
 
     screen_path: Option<PathBuf>,
     fit: Fit,
@@ -573,10 +577,8 @@ impl App {
             key_error: None,
             macro_sel: None,
             macro_name: String::new(),
-            macro_steps: String::new(),
-            macro_mode: MacroMode::Once,
-            macro_count: 1,
             macro_error: None,
+            macro_assign: (false, String::new()),
             screen_path: None,
             fit: Fit::Crop,
             crop: Crop::default(),
@@ -609,6 +611,7 @@ impl App {
             app.set_tray(true);
         }
         if app.shots.is_some() {
+            app.demo_macros();
             app.selected = Some("pgdn");
             app.editor = TargetEditor::from_target("ctrl+end");
             let demo = Path::new("examples/test-anim.gif");
@@ -1197,159 +1200,6 @@ impl App {
                 ui.colored_label(WARN, t("● changes not sent", "● modifiche non inviate"));
             }
         });
-    }
-
-    fn tab_macros(&mut self, ui: &mut Ui) {
-        title(
-            ui,
-            t("Macros", "Macro"),
-            t(
-                "Sequences saved in the keyboard, to assign to a key in the Keys tab.",
-                "Sequenze salvate nella tastiera, da assegnare a un tasto nella scheda Tasti.",
-            ),
-        );
-        ui.columns(2, |cols| {
-            card(&mut cols[0], t("Saved macros", "Macro salvate"), |ui| {
-                if self.macros.is_empty() {
-                    ui.label(RichText::new(t("No macros.", "Nessuna macro.")).weak());
-                }
-                let mut pick = None;
-                for (name, m) in &self.macros {
-                    let sel = self.macro_sel.as_deref() == Some(name.as_str());
-                    let used = self
-                        .keymap
-                        .normal
-                        .values()
-                        .chain(self.keymap.fn_layer.values())
-                        .any(|t| *t == format!("macro:{name}"));
-                    let text = format!(
-                        "{name}  ·  {} {}{}",
-                        m.steps.len(),
-                        t("steps", "passi"),
-                        if used { t("  · in use", "  · in uso") } else { "" }
-                    );
-                    if ui.selectable_label(sel, text).clicked() {
-                        pick = Some(name.clone());
-                    }
-                }
-                if let Some(name) = pick {
-                    let m = &self.macros[&name];
-                    self.macro_name = name.clone();
-                    self.macro_steps = m.steps.join("\n");
-                    self.macro_mode = m.mode;
-                    self.macro_count = m.count;
-                    self.macro_sel = Some(name);
-                    self.macro_error = None;
-                }
-                ui.add_space(8.0);
-                if ui.button(t("➕ New macro", "➕ Nuova macro")).clicked() {
-                    self.macro_sel = None;
-                    self.macro_name = format!("macro{}", self.macros.len() + 1);
-                    self.macro_steps = t("text:Hello!", "text:Ciao!").into();
-                    self.macro_mode = MacroMode::Once;
-                    self.macro_count = 1;
-                }
-            });
-            let ui = &mut cols[1];
-            card(ui, t("Editor", "Editor"), |ui| {
-                egui::Grid::new("macro-edit").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-                    ui.label(t("Name", "Nome"));
-                    ui.text_edit_singleline(&mut self.macro_name);
-                    ui.end_row();
-                    ui.label(t("Mode", "Modalità"));
-                    ComboBox::from_id_salt("macro-mode").selected_text(macro_mode_label(self.macro_mode)).show_ui(
-                        ui,
-                        |ui| {
-                            for m in [
-                                MacroMode::Once,
-                                MacroMode::Repeat,
-                                MacroMode::Toggle,
-                                MacroMode::Hold,
-                                MacroMode::Step,
-                            ] {
-                                ui.selectable_value(&mut self.macro_mode, m, macro_mode_label(m));
-                            }
-                        },
-                    );
-                    ui.end_row();
-                    if self.macro_mode == MacroMode::Repeat {
-                        ui.label(t("Repetitions", "Ripetizioni"));
-                        ui.add(Slider::new(&mut self.macro_count, 1..=255));
-                        ui.end_row();
-                    }
-                });
-                ui.label(t("Steps (one per line):", "Passi (uno per riga):"));
-                ui.add(
-                    egui::TextEdit::multiline(&mut self.macro_steps)
-                        .code_editor()
-                        .desired_rows(7)
-                        .desired_width(f32::INFINITY),
-                );
-                ui.label(
-                    RichText::new(t(
-                        "text:Hello · tap:ctrl+c · down:shift · up:shift · delay:100 · click:left",
-                        "text:Ciao · tap:ctrl+c · down:shift · up:shift · delay:100 · click:left",
-                    ))
-                    .small()
-                    .weak(),
-                );
-                let steps: Vec<String> =
-                    self.macro_steps.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect();
-                let valid = ak820::macros::events(&steps);
-                match &valid {
-                    Ok(ev) => {
-                        ui.label(RichText::new(format!("✔ {} {}", ev.len(), t("events", "eventi"))).color(OK));
-                    }
-                    Err(e) if !steps.is_empty() => {
-                        ui.colored_label(ERR, e.to_string());
-                    }
-                    Err(_) => {}
-                }
-                if let Some(e) = &self.macro_error {
-                    ui.colored_label(ERR, e);
-                }
-                ui.horizontal(|ui| {
-                    let name = self.macro_name.trim().to_string();
-                    if ui
-                        .add_enabled(
-                            valid.is_ok() && !name.is_empty(),
-                            Button::new(t("💾 Save macro", "💾 Salva macro")),
-                        )
-                        .clicked()
-                    {
-                        if let Some(old) = self.macro_sel.take().filter(|o| *o != name) {
-                            self.macros.remove(&old);
-                            rename_macro_refs(&mut self.keymap, &old, &name);
-                        }
-                        self.macros
-                            .insert(name.clone(), MacroDef { steps, mode: self.macro_mode, count: self.macro_count });
-                        self.macro_sel = Some(name);
-                        self.macro_error = None;
-                    }
-                    if let Some(sel) = self.macro_sel.clone() {
-                        if ui.button(t("🗑 Delete", "🗑 Elimina")).clicked() {
-                            let target = format!("macro:{sel}");
-                            let used =
-                                self.keymap.normal.values().chain(self.keymap.fn_layer.values()).any(|t| *t == target);
-                            if used {
-                                self.macro_error = Some(
-                                    t(
-                                        "The macro is assigned to a key: remove the assignment first.",
-                                        "La macro è assegnata a un tasto: rimuovi prima l'assegnazione.",
-                                    )
-                                    .into(),
-                                );
-                            } else {
-                                self.macros.remove(&sel);
-                                self.macro_sel = None;
-                            }
-                        }
-                    }
-                });
-            });
-        });
-        ui.add_space(10.0);
-        self.send_keymap_bar(ui, false);
     }
 
     fn load_screen(&mut self, path: PathBuf, crop: Crop) {
@@ -2325,6 +2175,7 @@ impl eframe::App for App {
                     Tab::Screen => self.tab_screen(ui),
                     Tab::System => self.tab_system(ui),
                     Tab::Profiles => self.tab_profiles(ui),
+                    Tab::Shortcuts => self.tab_shortcuts(ui),
                 }
                 ui.add_space(16.0);
             });
@@ -2522,11 +2373,22 @@ fn theme_label(choice: theme::Choice) -> &'static str {
     }
 }
 
+/// A round swatch that opens a color picker, followed by the hex value.
 fn color_button(ui: &mut Ui, c: &mut Rgb) {
-    let mut rgb = c.bytes();
-    if egui::color_picker::color_edit_button_srgb(ui, &mut rgb).changed() {
-        *c = Rgb(rgb[0], rgb[1], rgb[2]);
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), egui::Sense::click());
+    // The track color keeps a white or black swatch visible on both themes.
+    let ring = if resp.hovered() { accent(ui) } else { ui.visuals().widgets.inactive.bg_fill };
+    ui.painter().circle(rect.center(), 13.0, color32(*c), Stroke::new(2.0_f32, ring));
+    let popup = resp.id.with("picker");
+    if resp.clicked() {
+        ui.memory_mut(|m| m.toggle_popup(popup));
     }
+    egui::popup_below_widget(ui, popup, &resp, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+        let mut color = color32(*c);
+        if egui::color_picker::color_picker_color32(ui, &mut color, egui::color_picker::Alpha::Opaque) {
+            *c = Rgb(color.r(), color.g(), color.b());
+        }
+    });
     ui.label(RichText::new(format!("#{c}")).monospace().weak());
 }
 

@@ -176,14 +176,15 @@ enum MacroAction {
     /// Create or replace a macro, e.g. `ak820 macro set sig "text:Hi," "tap:enter"`
     Set {
         name: String,
-        /// Steps: text:..., tap:ctrl+c, down:KEY, up:KEY, delay:MS, click:left, mouse-down:left, mouse-up:left
+        /// Steps: text:..., tap:ctrl+c, down:KEY, up:KEY, delay:MS, click:left, mouse-down:left, mouse-up:left.
+        /// tap, text and click take how long to keep pressed: tap@80:ctrl+c (default 15 ms)
         #[arg(required = true)]
         steps: Vec<String>,
         #[arg(long, default_value = "once", value_parser = parse_macro_mode)]
         mode: MacroMode,
-        /// Repetitions for --mode repeat
-        #[arg(long, default_value_t = 1)]
-        count: u8,
+        /// Repetitions for --mode repeat (past 253 the steps are copied inside the macro)
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..))]
+        count: u16,
     },
     /// Delete a macro
     Rm { name: String },

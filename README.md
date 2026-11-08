@@ -46,6 +46,10 @@ they share the same saved configuration.
 |---|---|
 | ![Lighting](docs/screenshots/1-lighting.png) | ![Screen](docs/screenshots/5-screen.png) |
 
+| Macros | Shortcuts |
+|---|---|
+| ![Macros](docs/screenshots/4-macros.png) | ![Shortcuts](docs/screenshots/8-shortcuts.png) |
+
 | Profiles | System |
 |---|---|
 | ![Profiles](docs/screenshots/7-profiles.png) | ![System](docs/screenshots/6-system.png) |
@@ -111,10 +115,11 @@ ak820-gui
 
 Tabs: **Lighting** (lighting effects and parameters), **Key colors** (paint keys on the drawn
 keyboard, right-click to clear), **Keys** (click a key and choose what it does, normal and Fn
-layer), **Macros** (sequence editor), **Screen** (animated preview; in crop mode drag the image
+layer), **Macros** (each macro with the key that plays it, what it does in words and whether
+the keyboard has it; steps edited one per row, with how long each key stays pressed), **Screen** (animated preview; in crop mode drag the image
 to choose the visible part and scroll to zoom; drop an image or GIF), **System** (app settings,
-clock, sleep, Fn, debounce, battery) and **Profiles** (saved profiles, import/export/resend,
-factory reset). The bottom bar shows the connection status and the operation log.
+clock, sleep, Fn, debounce, battery), **Profiles** (saved profiles, import/export/resend,
+factory reset) and **Shortcuts** (the keyboard's own Fn combinations, from the AJAZZ manual). The bottom bar shows the connection status and the operation log.
 
 **Saved profiles** hold the whole configuration: lighting or per-key colors, remaps, macros,
 screen image (copied next to the profile) and system settings. **Apply** switches the keyboard
@@ -198,8 +203,10 @@ Other effects have no direction.
 | original | `default` |
 
 Macro steps: `text:…`, `tap:ctrl+c`, `down:KEY`, `up:KEY`, `delay:MS`,
-`click:left`, `mouse-down:left`, `mouse-up:left`. Modes: `once`, `repeat` (with `--count`),
-`toggle`, `hold`, `step`. Text uses the US layout (no accented letters).
+`click:left`, `mouse-down:left`, `mouse-up:left`. `tap`, `text` and `click` take how long to keep
+pressed: `tap@80:ctrl+c` (default 15 ms). Modes: `once`, `repeat` (with `--count`, up to 65535:
+the keyboard counts up to 253, past that the steps are copied inside the macro), `toggle`, `hold`,
+`step`. Text uses the US layout (no accented letters).
 
 ### State
 

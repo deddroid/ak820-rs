@@ -47,6 +47,10 @@ condividono la stessa configurazione salvata.
 |---|---|
 | ![Luci](docs/screenshots/1-lighting.png) | ![Display](docs/screenshots/5-screen.png) |
 
+| Macro | Scorciatoie |
+|---|---|
+| ![Macro](docs/screenshots/4-macros.png) | ![Scorciatoie](docs/screenshots/8-shortcuts.png) |
+
 | Profili | Sistema |
 |---|---|
 | ![Profili](docs/screenshots/7-profiles.png) | ![Sistema](docs/screenshots/6-system.png) |
@@ -112,11 +116,13 @@ ak820-gui
 
 Schede: **Luci** (effetti e parametri), **Colori tasti** (dipingi i tasti sulla tastiera
 disegnata, clic destro per cancellare), **Tasti** (clicca un tasto e scegli cosa deve fare,
-layer normale e Fn), **Macro** (editor di sequenze), **Display** (anteprima animata; in modalità
+layer normale e Fn), **Macro** (ogni macro con il tasto che la avvia, cosa fa
+a parole e se la tastiera ce l'ha; passi modificati uno per riga, con quanto resta premuto ogni
+tasto), **Display** (anteprima animata; in modalità
 ritaglia trascina l'immagine per scegliere la parte visibile e usa la rotella per lo zoom;
 trascina un'immagine o una GIF nella finestra), **Sistema** (impostazioni dell'app, orologio,
-sospensione, Fn, antirimbalzo, batteria) e **Profili** (profili salvati, importa/esporta/reinvia,
-ripristino di fabbrica). La barra in basso mostra lo stato del collegamento e il registro delle
+sospensione, Fn, antirimbalzo, batteria), **Profili** (profili salvati, importa/esporta/reinvia,
+ripristino di fabbrica) e **Scorciatoie** (le combinazioni Fn della tastiera, dal manuale AJAZZ). La barra in basso mostra lo stato del collegamento e il registro delle
 operazioni.
 
 I **profili salvati** contengono tutta la configurazione: luci o colori per tasto, rimappature,
@@ -201,8 +207,10 @@ Gli altri effetti non hanno direzione.
 | originale | `default` |
 
 Passi delle macro: `text:…`, `tap:ctrl+c`, `down:KEY`, `up:KEY`, `delay:MS`,
-`click:left`, `mouse-down:left`, `mouse-up:left`. Modalità: `once`, `repeat` (con `--count`),
-`toggle`, `hold`, `step`. Il testo usa il layout USA (lettere accentate non supportate).
+`click:left`, `mouse-down:left`, `mouse-up:left`. `tap`, `text` e `click` accettano quanto tenere
+premuto: `tap@80:ctrl+c` (di default 15 ms). Modalità: `once`, `repeat` (con `--count`, fino a
+65535: la tastiera conta fino a 253, oltre i passi vengono copiati dentro la macro), `toggle`,
+`hold`, `step`. Il testo usa il layout USA (lettere accentate non supportate).
 
 ### Stato
 

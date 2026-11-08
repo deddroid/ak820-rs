@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Shortcuts** tab: the keyboard's own Fn combinations from the AJAZZ manual (lighting, screen,
+  connection, F keys on Windows and Mac), for the model in use. Combinations replaced by a Fn-layer
+  remap are marked.
+- Macros: how long each key or click stays pressed (`tap@80:ctrl+c`, also for text and clicks).
+- Macros: the number of repetitions is typed and goes past 255 (`--count` up to 65535). The keyboard
+  counts up to 253; past that the steps are copied inside the macro.
+
+### Changed
+- The Macros tab lists each macro with the key that plays it, a sentence saying what it does and
+  whether it is on the keyboard, not sent yet or not assigned. Steps are edited one per row instead
+  of as text, a macro is assigned to a key from the same page, and the memory it uses is shown.
+- Color swatches are round, like the other controls.
+
+### Fixed
+- AK820: a macro repeated 254 or 255 times played as "start/stop" or "while held".
+- AK820: a macro switched from "repeat N times" back to "once" kept repeating.
+
 ## [0.4.0] - 2026-11-08
 
 ### Added

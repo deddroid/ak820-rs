@@ -13,8 +13,11 @@ use crate::Error;
 pub const MAX_MACROS: usize = 100;
 pub const BLOCK_MAX: usize = 0xE00;
 const DATA_START: usize = 400;
-/// Pause after every action; the official driver puts ≥ 10 ms.
-const STEP_DELAY_MS: u16 = 15;
+/// Default press length and pause after every action; the official driver puts ≥ 10 ms.
+pub const DEFAULT_HOLD_MS: u16 = 15;
+/// Most repetitions the keyboard counts by itself. The AK820 reads 254 and 255 as
+/// "start/stop" and "while held", so both models stop at 253.
+pub const REPEAT_MAX: u16 = 253;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -59,11 +62,97 @@ pub struct MacroDef {
     pub mode: MacroMode,
     /// Repetitions for `repeat`.
     #[serde(default = "one")]
-    pub count: u8,
+    pub count: u16,
 }
 
-fn one() -> u8 {
+fn one() -> u16 {
     1
+}
+
+impl MacroDef {
+    /// Steps and repeat count as stored in the keyboard. Past [`REPEAT_MAX`] the steps
+    /// are copied inside the macro: `copies × count` = the requested repetitions, with
+    /// the fewest copies. Only `repeat` uses the count.
+    pub fn stored(&self) -> (Vec<String>, u8) {
+        if self.mode != MacroMode::Repeat {
+            return (self.steps.clone(), 1);
+        }
+        let n = self.count.max(1);
+        let copies = (1..=n).find(|&c| n.is_multiple_of(c) && n / c <= REPEAT_MAX).unwrap_or(n);
+        let count = u8::try_from(n / copies).expect("n / copies <= REPEAT_MAX < 256");
+        (self.steps.iter().cloned().cycle().take(self.steps.len() * usize::from(copies)).collect(), count)
+    }
+}
+
+/// One macro step, written `kind:value` in profiles. Steps that press something also
+/// take how long it stays pressed: `kind@MS:value` (default [`DEFAULT_HOLD_MS`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Step {
+    /// Keys pressed together, then released: `tap:ctrl+c`.
+    Tap { keys: String, hold_ms: u16 },
+    /// Text typed with the US layout, each key held `hold_ms`: `text:Hello`.
+    Text { text: String, hold_ms: u16 },
+    /// A key pressed and left down: `down:shift`.
+    Down(String),
+    /// A key released: `up:shift`.
+    Up(String),
+    /// A pause in milliseconds: `delay:100`.
+    Delay(u16),
+    /// A mouse button clicked: `click:left`.
+    Click { button: String, hold_ms: u16 },
+    /// A mouse button pressed and left down: `mouse-down:left`.
+    MouseDown(String),
+    /// A mouse button released: `mouse-up:left`.
+    MouseUp(String),
+}
+
+impl std::str::FromStr for Step {
+    type Err = Error;
+
+    fn from_str(step: &str) -> Result<Self, Error> {
+        let (head, arg) = step
+            .split_once(':')
+            .ok_or_else(|| Error::Invalid(format!("macro step '{step}' must look like kind:value")))?;
+        let (kind, hold) = match head.split_once('@') {
+            Some((kind, ms)) => {
+                let ms = ms.parse::<u16>().ok().filter(|&ms| ms > 0);
+                (kind, Some(ms.ok_or_else(|| Error::Invalid(format!("bad duration in '{step}' (1..65535 ms)")))?))
+            }
+            None => (head, None),
+        };
+        let hold_ms = hold.unwrap_or(DEFAULT_HOLD_MS);
+        let arg = arg.to_string();
+        Ok(match kind {
+            "tap" => Step::Tap { keys: arg, hold_ms },
+            "text" => Step::Text { text: arg, hold_ms },
+            "click" => Step::Click { button: arg, hold_ms },
+            _ if hold.is_some() => return Err(Error::Invalid(format!("'{kind}' takes no duration in '{step}'"))),
+            "down" => Step::Down(arg),
+            "up" => Step::Up(arg),
+            "delay" => {
+                Step::Delay(arg.parse().map_err(|_| Error::Invalid(format!("bad delay in '{step}' (0..65535 ms)")))?)
+            }
+            "mouse-down" => Step::MouseDown(arg),
+            "mouse-up" => Step::MouseUp(arg),
+            _ => return Err(Error::Invalid(format!("unknown macro step kind '{kind}'"))),
+        })
+    }
+}
+
+impl std::fmt::Display for Step {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hold = |ms: u16| if ms == DEFAULT_HOLD_MS { String::new() } else { format!("@{ms}") };
+        match self {
+            Step::Tap { keys, hold_ms } => write!(f, "tap{}:{keys}", hold(*hold_ms)),
+            Step::Text { text, hold_ms } => write!(f, "text{}:{text}", hold(*hold_ms)),
+            Step::Down(key) => write!(f, "down:{key}"),
+            Step::Up(key) => write!(f, "up:{key}"),
+            Step::Delay(ms) => write!(f, "delay:{ms}"),
+            Step::Click { button, hold_ms } => write!(f, "click{}:{button}", hold(*hold_ms)),
+            Step::MouseDown(button) => write!(f, "mouse-down:{button}"),
+            Step::MouseUp(button) => write!(f, "mouse-up:{button}"),
+        }
+    }
 }
 
 fn key_down(u: u8) -> [u8; 4] {
@@ -121,14 +210,15 @@ fn char_key(c: char) -> Option<(bool, String)> {
     }
 }
 
-fn press_combo(usages: &[u8], out: &mut Vec<[u8; 4]>) {
-    for &u in usages {
+/// Press `usages` in order, keep them down `hold_ms`, release them in reverse order.
+fn press_combo(usages: &[u8], hold_ms: u16, out: &mut Vec<[u8; 4]>) {
+    for (i, &u) in usages.iter().enumerate() {
         out.push(key_down(u));
-        out.push(delay(STEP_DELAY_MS));
+        out.push(delay(if i + 1 == usages.len() { hold_ms } else { DEFAULT_HOLD_MS }));
     }
     for &u in usages.iter().rev() {
         out.push(key_up(u));
-        out.push(delay(STEP_DELAY_MS));
+        out.push(delay(DEFAULT_HOLD_MS));
     }
 }
 
@@ -140,50 +230,38 @@ fn key_usage(name: &str, step: &str) -> Result<u8, Error> {
 pub fn events(steps: &[String]) -> Result<Vec<[u8; 4]>, Error> {
     let mut out = Vec::new();
     for step in steps {
-        let (kind, arg) = step
-            .split_once(':')
-            .ok_or_else(|| Error::Invalid(format!("macro step '{step}' must look like kind:value")))?;
-        match kind {
-            "text" => {
-                for c in arg.chars() {
+        let mouse =
+            |b: &str| keys::mouse_button(b).ok_or_else(|| Error::Invalid(format!("unknown mouse button in '{step}'")));
+        match step.parse::<Step>()? {
+            Step::Text { text, hold_ms } => {
+                for c in text.chars() {
                     let (shift, name) = char_key(c).ok_or_else(|| {
                         Error::Invalid(format!("character '{c}' cannot be typed by a macro (US layout only)"))
                     })?;
                     let u = key_usage(&name, step)?;
                     let combo = if shift { vec![0xE1, u] } else { vec![u] };
-                    press_combo(&combo, &mut out);
+                    press_combo(&combo, hold_ms, &mut out);
                 }
             }
-            "tap" => {
-                let usages = arg.split('+').map(|k| key_usage(k, step)).collect::<Result<Vec<_>, _>>()?;
-                press_combo(&usages, &mut out);
+            Step::Tap { keys, hold_ms } => {
+                let usages = keys.split('+').map(|k| key_usage(k, step)).collect::<Result<Vec<_>, _>>()?;
+                press_combo(&usages, hold_ms, &mut out);
             }
-            "down" => {
-                out.push(key_down(key_usage(arg, step)?));
-                out.push(delay(STEP_DELAY_MS));
+            Step::Down(key) => {
+                out.push(key_down(key_usage(&key, step)?));
+                out.push(delay(DEFAULT_HOLD_MS));
             }
-            "up" => {
-                out.push(key_up(key_usage(arg, step)?));
-                out.push(delay(STEP_DELAY_MS));
+            Step::Up(key) => {
+                out.push(key_up(key_usage(&key, step)?));
+                out.push(delay(DEFAULT_HOLD_MS));
             }
-            "delay" => {
-                let ms: u16 =
-                    arg.parse().map_err(|_| Error::Invalid(format!("bad delay in '{step}' (0..65535 ms)")))?;
-                out.push(delay(ms));
+            Step::Delay(ms) => out.push(delay(ms)),
+            Step::Click { button, hold_ms } => {
+                let b = mouse(&button)?;
+                out.extend([mouse_down(b), delay(hold_ms), mouse_up(b), delay(DEFAULT_HOLD_MS)]);
             }
-            "click" | "mouse-down" | "mouse-up" => {
-                let b = keys::mouse_button(arg)
-                    .ok_or_else(|| Error::Invalid(format!("unknown mouse button in '{step}'")))?;
-                if kind != "mouse-up" {
-                    out.push(mouse_down(b));
-                    out.push(delay(STEP_DELAY_MS));
-                }
-                if kind != "mouse-down" {
-                    out.push(mouse_up(b));
-                    out.push(delay(STEP_DELAY_MS));
-                }
-            }
-            _ => return Err(Error::Invalid(format!("unknown macro step kind '{kind}'"))),
+            Step::MouseDown(button) => out.extend([mouse_down(mouse(&button)?), delay(DEFAULT_HOLD_MS)]),
+            Step::MouseUp(button) => out.extend([mouse_up(mouse(&button)?), delay(DEFAULT_HOLD_MS)]),
         }
     }
     if out.is_empty() {
@@ -253,6 +331,35 @@ mod tests {
         assert_eq!(e[1], [0, 0, 1, 0x90]);
         assert_eq!(e[3], [0, 0, 1, 0x10]);
         assert_eq!(e[5], [0, 0, 0xE0, 0xB0]);
+    }
+
+    #[test]
+    fn hold_durations() {
+        // the default duration is not written, so old profiles keep their bytes
+        assert_eq!(events(&["tap@15:ctrl+c".into()]).unwrap(), events(&["tap:ctrl+c".into()]).unwrap());
+        let e = events(&["tap@80:ctrl+c".into()]).unwrap();
+        assert_eq!(e[1], delay(DEFAULT_HOLD_MS)); // between ctrl and c
+        assert_eq!(e[3], delay(80)); // c held
+        let e = events(&["click@200:left".into()]).unwrap();
+        assert_eq!(e[1], delay(200));
+        assert!(events(&["delay@5:100".into()]).is_err());
+        assert!(events(&["tap@0:a".into()]).is_err());
+        for text in ["tap@80:ctrl+c", "text:a:b@c", "delay:100", "click:left", "mouse-up:right", "text@40:Hi"] {
+            assert_eq!(text.parse::<Step>().unwrap().to_string(), text);
+        }
+    }
+
+    #[test]
+    fn repeat_past_the_keyboard_counter() {
+        let def = |count| MacroDef { steps: vec!["click:left".into()], mode: MacroMode::Repeat, count };
+        assert_eq!(def(10).stored(), (vec!["click:left".to_string()], 10));
+        assert_eq!(def(253).stored().1, 253);
+        let (steps, count) = def(1000).stored();
+        assert_eq!((steps.len(), count), (4, 250));
+        let (steps, count) = def(257).stored(); // prime: every repetition is a copy
+        assert_eq!((steps.len(), count), (257, 1));
+        let once = MacroDef { mode: MacroMode::Once, ..def(40) };
+        assert_eq!(once.stored().1, 1);
     }
 
     #[test]

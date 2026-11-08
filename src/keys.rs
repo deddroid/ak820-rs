@@ -628,9 +628,10 @@ fn push_macro(def: MacroDef, list: &mut Vec<MacroDef>) -> Result<[u8; 4], Error>
         return Err(Error::Invalid("too many macros (max 100)".into()));
     }
     let id = list.len() as u8;
-    let (mode, count) = (def.mode.code(), def.count.max(1));
-    list.push(def);
-    Ok([6, id, mode, count])
+    let (steps, count) = def.stored();
+    let mode = def.mode;
+    list.push(MacroDef { steps, mode, count: count.into() });
+    Ok([6, id, mode.code(), count])
 }
 
 #[cfg(test)]

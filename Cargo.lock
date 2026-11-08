@@ -134,6 +134,7 @@ name = "ak820"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "ashpd",
  "chrono",
  "clap",
  "dirs 5.0.1",
@@ -141,6 +142,7 @@ dependencies = [
  "hidapi",
  "image",
  "ksni",
+ "pollster",
  "rfd",
  "serde",
  "thiserror 1.0.69",

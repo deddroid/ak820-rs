@@ -76,9 +76,9 @@ To build only the CLI, without GUI dependencies: `cargo build --release --no-def
 
 ### Linux: permissions
 
-`hidraw` devices are only accessible to root by default. In the GUI, press **Concedi accesso**
-("grant access") in the bottom bar: it asks for the administrator password and installs the
-udev rule. Or from a terminal:
+`hidraw` devices are only accessible to root by default. In the GUI, press **Grant access**
+in the bottom bar: it asks for the administrator password and installs the udev rule. Or from
+a terminal:
 
 ```bash
 sudo cp udev/70-ajazz-ak820.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
@@ -103,7 +103,8 @@ keyboard, right-click to clear), **Keys** (click a key and choose what it does, 
 layer), **Macros** (sequence editor), **Screen** (animated preview; in crop mode drag the image
 to choose the visible part and scroll to zoom; drop an image or GIF), **System** (app settings,
 clock, sleep, Fn, debounce, battery) and **Profiles** (saved profiles, import/export/resend,
-factory reset). The bottom bar shows the connection status and the operation log.
+factory reset). The bottom bar shows the connection status and the operation log. The window
+follows the system's light or dark theme (`AK820_GUI_THEME=light|dark` forces one).
 
 **Saved profiles** hold the whole configuration: lighting or per-key colors, remaps, macros,
 screen image (copied next to the profile) and system settings. **Apply** switches the keyboard
@@ -214,6 +215,9 @@ anyone building another GUI or a daemon on top of it. The protocol is documented
 
 Code written by [Claude](https://claude.com/claude-code) (Anthropic) together with
 [deddroid](https://github.com/deddroid), who tested it on the keyboard.
+
+Fonts: [Inter](https://rsms.me/inter/) and [Rajdhani](https://fonts.google.com/specimen/Rajdhani),
+embedded under the SIL Open Font License (see `assets/fonts/`).
 
 Protocol consolidated from these projects (thank you!):
 

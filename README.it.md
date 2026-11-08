@@ -106,7 +106,8 @@ ritaglia trascina l'immagine per scegliere la parte visibile e usa la rotella pe
 trascina un'immagine o una GIF nella finestra), **Sistema** (impostazioni dell'app, orologio,
 sospensione, Fn, antirimbalzo, batteria) e **Profili** (profili salvati, importa/esporta/reinvia,
 ripristino di fabbrica). La barra in basso mostra lo stato del collegamento e il registro delle
-operazioni.
+operazioni. La finestra segue il tema chiaro o scuro del sistema (`AK820_GUI_THEME=light|dark`
+ne forza uno).
 
 I **profili salvati** contengono tutta la configurazione: luci o colori per tasto, rimappature,
 macro, immagine del display (copiata accanto al profilo) e impostazioni. **Applica** porta la
@@ -217,6 +218,9 @@ vuole costruirci sopra una GUI o un demone. Il protocollo è documentato in
 
 Codice scritto da [Claude](https://claude.com/claude-code) (Anthropic) insieme a
 [deddroid](https://github.com/deddroid), che lo ha testato sulla tastiera.
+
+Font: [Inter](https://rsms.me/inter/) e [Rajdhani](https://fonts.google.com/specimen/Rajdhani),
+incorporati con licenza SIL Open Font License (vedi `assets/fonts/`).
 
 Protocollo consolidato da questi progetti (grazie!):
 

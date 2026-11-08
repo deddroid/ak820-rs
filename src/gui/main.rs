@@ -7,6 +7,7 @@ mod i18n;
 mod instance;
 mod layout;
 mod settings;
+mod theme;
 mod tray;
 mod worker;
 
@@ -17,8 +18,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Button, Color32, ComboBox, CornerRadius, FontId, Pos2, Rect, RichText, Slider, Stroke, TextStyle,
-    TextureHandle, TextureOptions, Ui, Vec2,
+    self, Button, Color32, ComboBox, CornerRadius, FontFamily, FontId, Pos2, Rect, RichText, Shadow, Slider, Stroke,
+    TextStyle, TextureHandle, TextureOptions, Theme, Ui, Vec2,
 };
 
 use ak820::lighting::{Direction, Lighting, Mode};
@@ -33,12 +34,42 @@ use settings::Settings;
 use tray::{TrayCmd, Wake};
 use worker::{Job, Msg, Op, Status};
 
-const ACCENT: Color32 = Color32::from_rgb(124, 92, 255);
-const ACCENT_SOFT: Color32 = Color32::from_rgb(70, 56, 140);
-const OK: Color32 = Color32::from_rgb(80, 200, 120);
-const WARN: Color32 = Color32::from_rgb(240, 180, 60);
-const ERR: Color32 = Color32::from_rgb(235, 90, 90);
+/// Colors of one theme. The window follows the system: "Carta calda" in light
+/// mode, "Viola notte" in dark mode, same hierarchy in both.
+struct Palette {
+    bg: Color32,
+    surface: Color32,
+    text: Color32,
+    accent: Color32,
+    /// Unfilled controls: slider rail, switch off, text fields.
+    track: Color32,
+}
+
+const LIGHT: Palette = Palette {
+    bg: Color32::from_rgb(0xf3, 0xed, 0xe3),
+    surface: Color32::from_rgb(0xfb, 0xf8, 0xf2),
+    text: Color32::from_rgb(0x2b, 0x25, 0x20),
+    accent: Color32::from_rgb(0xc2, 0x41, 0x0c),
+    track: Color32::from_rgb(0xdd, 0xd1, 0xbd),
+};
+
+const DARK: Palette = Palette {
+    bg: Color32::from_rgb(0x15, 0x15, 0x1c),
+    surface: Color32::from_rgb(0x1e, 0x1e, 0x28),
+    text: Color32::from_rgb(0xec, 0xec, 0xf3),
+    accent: Color32::from_rgb(0x8b, 0x5c, 0xf6),
+    track: Color32::from_rgb(0x3a, 0x3a, 0x4c),
+};
+
+// Status colors, readable on both themes.
+const OK: Color32 = Color32::from_rgb(46, 160, 90);
+const WARN: Color32 = Color32::from_rgb(200, 130, 20);
+const ERR: Color32 = Color32::from_rgb(220, 70, 70);
+/// Keycaps of the drawn keyboard (the real one is dark on both themes).
 const KEYCAP: Color32 = Color32::from_rgb(48, 48, 60);
+
+/// Font family of headings and the app name (Rajdhani, with the body fonts as fallback).
+const TITLE_FONT: &str = "titles";
 
 /// winit has no file drag & drop on Wayland, so on Linux the window goes through
 /// XWayland when it is available. `AK820_WAYLAND=1` keeps native Wayland.
@@ -731,8 +762,8 @@ impl App {
     fn action(&self, ui: &mut Ui, text: &str, needs_wire: bool) -> bool {
         let enabled = !self.busy && if needs_wire { self.wired() } else { self.connected() };
         let button = Button::new(RichText::new(text).strong().color(Color32::WHITE))
-            .fill(ACCENT)
-            .min_size(Vec2::new(150.0, 34.0));
+            .fill(accent(ui))
+            .min_size(Vec2::new(150.0, 36.0));
         let resp = ui.add_enabled(enabled, button);
         let resp = if needs_wire && self.status == Status::Receiver {
             resp.on_disabled_hover_text(t("Works only with the USB cable", "Funziona solo con il cavo USB"))
@@ -778,7 +809,7 @@ impl App {
                     if caps.color {
                         ui.horizontal(|ui| {
                             ui.add_enabled_ui(!self.light.rainbow, |ui| color_button(ui, &mut self.light.color));
-                            ui.checkbox(&mut self.light.rainbow, t("Rainbow", "Arcobaleno"));
+                            toggle_label(ui, &mut self.light.rainbow, t("Rainbow", "Arcobaleno"));
                         });
                     } else {
                         ui.label(
@@ -930,10 +961,11 @@ impl App {
         ui.add_space(6.0);
         let fn_layer = self.fn_layer;
         let layer = if fn_layer { &self.keymap.fn_layer } else { &self.keymap.normal };
+        let remapped = mix(KEYCAP, accent(ui), 0.5);
         let clicked = layout::keyboard(ui, |name| {
             let target = layer.get(name);
             KeyLook {
-                fill: if target.is_some() { ACCENT_SOFT } else { KEYCAP },
+                fill: if target.is_some() { remapped } else { KEYCAP },
                 sub: target.cloned(),
                 dim: keys::check_remappable(name, fn_layer).is_err(),
                 selected: self.selected == Some(name),
@@ -1326,14 +1358,14 @@ impl App {
         let sense = if self.fit == Fit::Crop { egui::Sense::drag() } else { egui::Sense::hover() };
         let (rect, resp) = ui.allocate_exact_size(size, sense);
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, CornerRadius::same(8), Color32::BLACK);
+        painter.rect_filled(rect, CornerRadius::same(12), Color32::BLACK);
         if self.source.is_empty() {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 t("no image", "nessuna immagine"),
                 FontId::proportional(14.0),
-                Color32::GRAY,
+                ui.visuals().weak_text_color(),
             );
             return;
         }
@@ -1401,8 +1433,8 @@ impl App {
         }
         painter.rect_stroke(
             rect,
-            CornerRadius::same(8),
-            Stroke::new(1.0_f32, Color32::from_gray(90)),
+            CornerRadius::same(12),
+            ui.visuals().widgets.noninteractive.bg_stroke,
             egui::StrokeKind::Inside,
         );
         if self.source.len() > 1 {
@@ -1541,7 +1573,7 @@ impl App {
 
                 ui.label(t("Startup", "Avvio"));
                 let mut autostart = self.autostart;
-                ui.checkbox(&mut autostart, t("Start with the computer (in the tray)", "Avvia all'accensione del PC (nella tray)"));
+                toggle_label(ui, &mut autostart, t("Start with the computer (in the tray)", "Avvia all'accensione del PC (nella tray)"));
                 if autostart != self.autostart {
                     match autostart::set(autostart) {
                         Ok(()) => self.autostart = autostart,
@@ -1555,7 +1587,7 @@ impl App {
 
                 ui.label(t("Closing the window", "Chiusura finestra"));
                 let mut to_tray = self.settings.close_to_tray;
-                ui.checkbox(&mut to_tray, t("Keep running in the tray", "Riduci nella tray"))
+                toggle_label(ui, &mut to_tray, t("Keep running in the tray", "Riduci nella tray"))
                     .on_hover_text(t(
                         "The icon in the system tray reopens the window and switches profile. On GNOME it needs the AppIndicator extension.",
                         "L'icona nella tray riapre la finestra e cambia profilo. Su GNOME serve l'estensione AppIndicator.",
@@ -1569,7 +1601,7 @@ impl App {
 
                 ui.label(t("Clock", "Orologio"));
                 let mut sync = self.settings.sync_clock_on_start;
-                ui.checkbox(&mut sync, t("Sync the screen clock when the app starts", "Sincronizza l'orologio del display all'avvio"));
+                toggle_label(ui, &mut sync, t("Sync the screen clock when the app starts", "Sincronizza l'orologio del display all'avvio"));
                 if sync != self.settings.sync_clock_on_start {
                     self.settings.sync_clock_on_start = sync;
                     self.save_settings();
@@ -1607,21 +1639,17 @@ impl App {
         card(ui, t("Settings", "Impostazioni"), |ui| {
             egui::Grid::new("system").num_columns(2).spacing([24.0, 12.0]).show(ui, |ui| {
                 ui.label(t("Sleep (on battery)", "Sospensione (a batteria)"));
-                ui.horizontal(|ui| {
-                    for (v, l) in [
-                        (SleepTime::Never, t("Never", "Mai")),
-                        (SleepTime::Min1, "1 min"),
-                        (SleepTime::Min5, "5 min"),
-                        (SleepTime::Min30, "30 min"),
-                    ] {
-                        ui.selectable_value(&mut self.system.sleep, v, l);
+                ComboBox::from_id_salt("sleep").selected_text(sleep_label(self.system.sleep)).show_ui(ui, |ui| {
+                    for v in [SleepTime::Never, SleepTime::Min1, SleepTime::Min5, SleepTime::Min30] {
+                        ui.selectable_value(&mut self.system.sleep, v, sleep_label(v));
                     }
                 });
                 ui.end_row();
                 ui.label(t("Fn key", "Tasto Fn"));
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.system.fn_mode, FnMode::Hold, t("Hold", "Tenuto premuto"));
-                    ui.selectable_value(&mut self.system.fn_mode, FnMode::Toggle, t("Toggle", "Attiva/disattiva"));
+                ComboBox::from_id_salt("fn-mode").selected_text(fn_mode_label(self.system.fn_mode)).show_ui(ui, |ui| {
+                    for m in [FnMode::Hold, FnMode::Toggle] {
+                        ui.selectable_value(&mut self.system.fn_mode, m, fn_mode_label(m));
+                    }
                 });
                 ui.end_row();
                 ui.label(t("Debounce", "Antirimbalzo"));
@@ -1629,9 +1657,9 @@ impl App {
                 ui.end_row();
                 ui.label(t("Block", "Blocca"));
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.system.block_win, "Win");
-                    ui.checkbox(&mut self.system.block_alt_f4, "Alt+F4");
-                    ui.checkbox(&mut self.system.block_alt_tab, "Alt+Tab");
+                    toggle_label(ui, &mut self.system.block_win, "Win");
+                    toggle_label(ui, &mut self.system.block_alt_f4, "Alt+F4");
+                    toggle_label(ui, &mut self.system.block_alt_tab, "Alt+Tab");
                 });
                 ui.end_row();
             });
@@ -1731,9 +1759,14 @@ impl App {
             for (name, p) in &self.profiles {
                 let in_use = p.switch_from(state).is_none();
                 let active = active_profile.as_deref() == Some(name.as_str());
+                let fill = if active {
+                    accent(ui).gamma_multiply(0.18)
+                } else {
+                    ui.visuals().widgets.noninteractive.weak_bg_fill
+                };
                 egui::Frame::new()
-                    .fill(if active { ACCENT_SOFT.gamma_multiply(0.5) } else { ui.visuals().extreme_bg_color })
-                    .corner_radius(CornerRadius::same(8))
+                    .fill(fill)
+                    .corner_radius(CornerRadius::same(12))
                     .inner_margin(egui::Margin::symmetric(12, 8))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
@@ -1748,12 +1781,8 @@ impl App {
                                 }
                             } else {
                                 ui.vertical(|ui| {
-                                    let mut title = RichText::new(name).strong().size(16.0);
-                                    if active {
-                                        title = title.color(Color32::WHITE);
-                                    }
                                     ui.horizontal(|ui| {
-                                        ui.label(title);
+                                        ui.label(RichText::new(name).strong().size(16.0));
                                         if active {
                                             ui.label(RichText::new(t("● active", "● attivo")).color(OK).small());
                                         }
@@ -1795,8 +1824,8 @@ impl App {
                                     ));
                                 } else {
                                     let b = Button::new(RichText::new(t("▶ Apply", "▶ Applica")).strong().color(Color32::WHITE))
-                                        .fill(ACCENT)
-                                        .min_size(Vec2::new(100.0, 30.0));
+                                        .fill(accent(ui))
+                                        .min_size(Vec2::new(100.0, 32.0));
                                     if ui.add_enabled(can_apply, b).clicked() {
                                         action = Some(Action::Apply(name.clone()));
                                     }
@@ -1988,12 +2017,13 @@ impl App {
     // ---- chrome ------------------------------------------------------------------------
 
     fn status_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("status").exact_height(38.0).show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("status").exact_height(40.0).show(ctx, |ui| {
             ui.horizontal_centered(|ui| {
                 let (color, text) = match &self.status {
-                    Status::Searching => {
-                        (Color32::GRAY, t("Looking for the keyboard…", "Ricerca tastiera…").to_string())
-                    }
+                    Status::Searching => (
+                        ui.visuals().weak_text_color(),
+                        t("Looking for the keyboard…", "Ricerca tastiera…").to_string(),
+                    ),
                     Status::Wired(pid) => {
                         (OK, format!("{} (PID {pid:04x})", t("Connected via USB cable", "Collegata via cavo USB")))
                     }
@@ -2062,15 +2092,16 @@ impl App {
     fn nav(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("nav").exact_width(190.0).resizable(false).show(ctx, |ui| {
             ui.add_space(16.0);
-            ui.label(RichText::new("AK820 Pro").size(22.0).strong().color(ACCENT));
+            let name = RichText::new("AK820 Pro").family(FontFamily::Name(TITLE_FONT.into())).size(28.0);
+            ui.label(name.color(accent(ui)));
             ui.label(RichText::new(t("configurator", "configuratore")).weak());
-            ui.add_space(18.0);
+            ui.add_space(16.0);
             for &(tab, icon, en, it) in TABS {
                 let selected = self.tab == tab;
                 let text = RichText::new(format!("{icon}   {}", t(en, it))).size(16.0);
                 let b = Button::new(if selected { text.color(Color32::WHITE) } else { text })
-                    .fill(if selected { ACCENT } else { Color32::TRANSPARENT })
-                    .min_size(Vec2::new(170.0, 38.0));
+                    .fill(if selected { accent(ui) } else { Color32::TRANSPARENT })
+                    .min_size(Vec2::new(170.0, 40.0));
                 if ui.add(b).clicked() {
                     self.tab = tab;
                 }
@@ -2106,7 +2137,7 @@ impl App {
             painter.rect_stroke(
                 rect.shrink(16.0),
                 CornerRadius::same(16),
-                Stroke::new(3.0_f32, ACCENT),
+                Stroke::new(3.0_f32, ctx.style().visuals.selection.bg_fill),
                 egui::StrokeKind::Inside,
             );
             painter.text(
@@ -2206,70 +2237,170 @@ const FALLBACK_FONTS: &[&str] = &[
     "C:\\Windows\\Fonts\\seguisym.ttf",
 ];
 
+/// Inter for text and controls, Rajdhani for headings (both embedded, SIL OFL:
+/// see `assets/fonts/`), then egui's fonts and the system ones for missing glyphs.
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
+    let inter = include_bytes!("../../assets/fonts/Inter-Regular.ttf");
+    let rajdhani = include_bytes!("../../assets/fonts/Rajdhani-SemiBold.ttf");
+    fonts.font_data.insert("Inter".into(), Arc::new(egui::FontData::from_static(inter)));
+    fonts.font_data.insert("Rajdhani".into(), Arc::new(egui::FontData::from_static(rajdhani)));
     for (i, path) in FALLBACK_FONTS.iter().enumerate() {
         if let Ok(bytes) = std::fs::read(path) {
             let name = format!("fallback{i}");
             fonts.font_data.insert(name.clone(), Arc::new(egui::FontData::from_owned(bytes)));
-            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            for family in [FontFamily::Proportional, FontFamily::Monospace] {
                 fonts.families.entry(family).or_default().push(name.clone());
             }
         }
     }
+    let body = fonts.families.entry(FontFamily::Proportional).or_default();
+    body.insert(0, "Inter".into());
+    let titles = std::iter::once("Rajdhani".to_string()).chain(body.iter().cloned()).collect();
+    fonts.families.insert(FontFamily::Name(TITLE_FONT.into()), titles);
     ctx.set_fonts(fonts);
 }
 
 fn setup_style(ctx: &egui::Context) {
     setup_fonts(ctx);
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = Color32::from_rgb(24, 24, 32);
-    visuals.window_fill = Color32::from_rgb(30, 30, 40);
-    visuals.extreme_bg_color = Color32::from_rgb(16, 16, 22);
-    visuals.faint_bg_color = Color32::from_rgb(32, 32, 44);
-    visuals.selection.bg_fill = ACCENT;
-    visuals.selection.stroke = Stroke::new(1.5_f32, Color32::from_rgb(200, 185, 255));
-    visuals.hyperlink_color = ACCENT;
-    for w in [
-        &mut visuals.widgets.inactive,
-        &mut visuals.widgets.hovered,
-        &mut visuals.widgets.active,
-        &mut visuals.widgets.open,
-        &mut visuals.widgets.noninteractive,
-    ] {
-        w.corner_radius = CornerRadius::same(7);
-    }
-    visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(44, 44, 58);
-    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(58, 56, 80);
-    ctx.set_visuals(visuals);
-    ctx.style_mut(|s| {
-        s.spacing.item_spacing = Vec2::new(10.0, 8.0);
+    ctx.set_theme(theme::preference());
+    ctx.set_visuals_of(Theme::Light, visuals(&LIGHT, egui::Visuals::light()));
+    ctx.set_visuals_of(Theme::Dark, visuals(&DARK, egui::Visuals::dark()));
+    ctx.all_styles_mut(|s| {
+        s.animation_time = 0.15;
+        s.spacing.item_spacing = Vec2::new(8.0, 8.0);
         s.spacing.button_padding = Vec2::new(12.0, 6.0);
+        s.spacing.interact_size = Vec2::new(40.0, 32.0);
         s.spacing.slider_width = 220.0;
         s.text_styles.insert(TextStyle::Body, FontId::proportional(15.0));
         s.text_styles.insert(TextStyle::Button, FontId::proportional(15.0));
-        s.text_styles.insert(TextStyle::Heading, FontId::proportional(24.0));
+        s.text_styles.insert(TextStyle::Heading, FontId::new(28.0, FontFamily::Name(TITLE_FONT.into())));
         s.text_styles.insert(TextStyle::Monospace, FontId::monospace(14.0));
         s.text_styles.insert(TextStyle::Small, FontId::proportional(12.5));
     });
 }
 
+/// egui visuals from a palette, on top of egui's own light or dark defaults.
+/// Corner radii are concentric: 12 on controls, 16 on cards and menus, 20 on windows.
+fn visuals(p: &Palette, mut v: egui::Visuals) -> egui::Visuals {
+    let border = if v.dark_mode { Color32::from_white_alpha(18) } else { Color32::from_black_alpha(20) };
+    let shadow = |blur, alpha| Shadow { offset: [0, 2], blur, spread: 0, color: Color32::from_black_alpha(alpha) };
+    v.panel_fill = p.bg;
+    v.window_fill = p.surface;
+    v.faint_bg_color = p.surface;
+    v.extreme_bg_color = p.track;
+    v.code_bg_color = p.track;
+    v.window_stroke = Stroke::new(1.0_f32, border);
+    v.window_corner_radius = CornerRadius::same(20);
+    v.menu_corner_radius = CornerRadius::same(16);
+    v.window_shadow = shadow(16, if v.dark_mode { 90 } else { 40 });
+    v.popup_shadow = shadow(8, if v.dark_mode { 70 } else { 30 });
+    v.selection.bg_fill = p.accent;
+    v.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    v.hyperlink_color = p.accent;
+    v.slider_trailing_fill = true;
+
+    let w = &mut v.widgets;
+    w.noninteractive.bg_fill = p.surface;
+    w.noninteractive.weak_bg_fill = mix(p.surface, p.track, 0.35);
+    w.noninteractive.bg_stroke = Stroke::new(1.0_f32, border);
+    w.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.text);
+    w.inactive.bg_fill = p.track;
+    w.inactive.weak_bg_fill = p.track;
+    w.inactive.bg_stroke = Stroke::NONE;
+    w.inactive.fg_stroke = Stroke::new(1.0_f32, p.text);
+    let hover = mix(p.track, p.text, 0.08);
+    w.hovered.bg_fill = hover;
+    w.hovered.weak_bg_fill = hover;
+    w.hovered.bg_stroke = Stroke::new(1.0_f32, border);
+    w.hovered.fg_stroke = Stroke::new(1.5_f32, p.text);
+    w.open = w.hovered;
+    let pressed = mix(p.track, p.accent, 0.5);
+    w.active.bg_fill = pressed;
+    w.active.weak_bg_fill = pressed;
+    w.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
+    w.active.fg_stroke = Stroke::new(2.0_f32, p.text);
+    for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+        s.corner_radius = CornerRadius::same(12);
+    }
+    v
+}
+
+/// The accent of the current theme (egui keeps it as the selection color).
+fn accent(ui: &Ui) -> Color32 {
+    ui.visuals().selection.bg_fill
+}
+
+/// Linear blend of two opaque colors, `t` = 0 gives `a`, 1 gives `b`.
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let ch = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgb(ch(a.r(), b.r()), ch(a.g(), b.g()), ch(a.b(), b.b()))
+}
+
+/// An on/off switch; the response is `changed()` when it was flipped.
+fn toggle(ui: &mut Ui, on: &mut bool) -> egui::Response {
+    let (rect, mut resp) = ui.allocate_exact_size(Vec2::new(44.0, 24.0), egui::Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    if ui.is_rect_visible(rect) {
+        let how_on = ui.ctx().animate_bool_responsive(resp.id, *on);
+        let fill = mix(ui.visuals().widgets.inactive.bg_fill, accent(ui), how_on);
+        let radius = 0.5 * rect.height();
+        ui.painter().rect_filled(rect, CornerRadius::same(radius as u8), fill);
+        let x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+        let knob_stroke = Stroke::new(1.0_f32, Color32::from_black_alpha(40));
+        ui.painter().circle(Pos2::new(x, rect.center().y), 0.75 * radius, Color32::WHITE, knob_stroke);
+    }
+    resp
+}
+
+/// A switch followed by its label; clicking either flips it.
+fn toggle_label(ui: &mut Ui, on: &mut bool, text: &str) -> egui::Response {
+    ui.horizontal(|ui| {
+        let mut resp = toggle(ui, on);
+        if ui.add(egui::Label::new(text).sense(egui::Sense::click())).clicked() {
+            *on = !*on;
+            resp.mark_changed();
+        }
+        resp
+    })
+    .inner
+}
+
+fn sleep_label(s: SleepTime) -> &'static str {
+    match s {
+        SleepTime::Never => t("Never", "Mai"),
+        SleepTime::Min1 => "1 min",
+        SleepTime::Min5 => "5 min",
+        SleepTime::Min30 => "30 min",
+    }
+}
+
+fn fn_mode_label(m: FnMode) -> &'static str {
+    match m {
+        FnMode::Hold => t("Hold", "Tenuto premuto"),
+        FnMode::Toggle => t("Toggle", "Attiva/disattiva"),
+    }
+}
+
 fn title(ui: &mut Ui, heading: &str, sub: &str) {
     ui.heading(RichText::new(heading).strong());
     ui.label(RichText::new(sub).weak());
-    ui.add_space(10.0);
+    ui.add_space(12.0);
 }
 
 fn card<R>(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::group(ui.style())
         .fill(ui.visuals().faint_bg_color)
-        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 66)))
-        .corner_radius(CornerRadius::same(10))
-        .inner_margin(egui::Margin::same(14))
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(CornerRadius::same(16))
+        .inner_margin(egui::Margin::same(12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new(title).strong().size(16.0));
-            ui.add_space(6.0);
+            ui.add_space(8.0);
             add(ui)
         })
         .inner

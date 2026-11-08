@@ -2,6 +2,8 @@
 name = "ak820"
 version = "0.1.1"
 edition = "2021"
+# Floor set by the dependencies in Cargo.lock.
+rust-version = "1.89"
 description = "Cross-platform (Linux/Windows) configuration tool for the AJAZZ AK820 Pro keyboard: lighting, per-key colors, key remapping, macros, TFT screen and clock"
 license = "MIT"
 readme = "README.md"
@@ -22,7 +24,16 @@ required-features = ["gui"]
 
 [features]
 default = ["gui"]
-gui = ["dep:eframe", "dep:rfd", "dep:ksni", "dep:winit", "dep:tray-icon", "dep:windows-sys"]
+gui = [
+    "dep:eframe",
+    "dep:rfd",
+    "dep:ksni",
+    "dep:winit",
+    "dep:ashpd",
+    "dep:pollster",
+    "dep:tray-icon",
+    "dep:windows-sys",
+]
 
 [dependencies]
 anyhow = "1"
@@ -39,6 +50,9 @@ toml = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "=0.3.1", features = ["blocking"], optional = true }
+# System light/dark preference through the XDG settings portal (rfd already pulls both in).
+ashpd = { version = "0.11", default-features = false, features = ["async-std"], optional = true }
+pollster = { version = "0.4", optional = true }
 # Same winit as eframe; only used to pick the X11 backend (file drag & drop).
 winit = { version = "0.30", default-features = false, features = ["x11"], optional = true }
 

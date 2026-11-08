@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-08
+
 ### Added
 - The window follows the system theme: a warm light palette and the violet dark one,
   same hierarchy in both. `AK820_GUI_THEME=light|dark` forces one.
@@ -41,6 +43,7 @@ All notable changes to this project are documented here. The format follows
 - Two directions per moving effect, app icon, `install.sh` installer.
 - CI and release workflows with prebuilt Linux and Windows archives.
 
-[Unreleased]: https://github.com/deddroid/ak820-rs/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/deddroid/ak820-rs/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/deddroid/ak820-rs/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/deddroid/ak820-rs/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/deddroid/ak820-rs/releases/tag/v0.1.0

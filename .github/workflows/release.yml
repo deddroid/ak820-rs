@@ -81,5 +81,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
+          for f in ak820-*.zip ak820-*.tar.gz; do sha256sum "$f" > "$f.sha256"; done
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
-          gh release upload "$TAG" ak820-*.zip ak820-*.tar.gz --clobber
+          gh release upload "$TAG" ak820-*.zip ak820-*.tar.gz ak820-*.sha256 --clobber

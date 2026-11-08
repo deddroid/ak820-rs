@@ -275,6 +275,8 @@ impl Keyboard {
         self.data(&data, Duration::from_millis(2))?;
         self.feature(&p::control(cmd::COMMIT, 0, 0), Duration::from_millis(5))?;
         sleep(Duration::from_millis(5));
+        // The keyboard answers the commit with a status report nobody uses; reading it
+        // only keeps the interface in step, so a failed read must not fail the frame.
         let mut buf = [0u8; PACKET + 1];
         let _ = self.config()?.get_feature_report(&mut buf);
         Ok(())

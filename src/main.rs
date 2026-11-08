@@ -404,8 +404,8 @@ fn run(cli: Cli) -> Result<()> {
             }
             for a in &assign {
                 let (k, t) = split_assign(a)?;
-                keys::check_remappable(k, fn_layer)?;
-                let k = keys::canonical_name(keys::position(k).unwrap()).unwrap().to_string();
+                let pos = keys::check_remappable(k, fn_layer)?;
+                let k = keys::canonical_name(pos).expect("position comes from the key table").to_string();
                 if t.eq_ignore_ascii_case("default") {
                     layer.remove(&k);
                 } else {

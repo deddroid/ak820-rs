@@ -98,14 +98,17 @@ pub fn apply(
 /// `(light index, x 0..1, row 0..1)` of every key, from its rank in its row.
 pub fn key_grid() -> Vec<(u8, f32, f32)> {
     const ROW_ENDS: &[&str] = &["delete", "home", "pgup", "pgdn", "up", "right"];
-    let mut rows: Vec<Vec<u8>> = vec![vec![]];
+    let mut rows: Vec<Vec<u8>> = Vec::new();
+    let mut row = Vec::new();
     for (name, idx) in keys::all_lights() {
-        rows.last_mut().unwrap().push(idx);
+        row.push(idx);
         if ROW_ENDS.contains(&name) {
-            rows.push(vec![]);
+            rows.push(std::mem::take(&mut row));
         }
     }
-    rows.retain(|r| !r.is_empty());
+    if !row.is_empty() {
+        rows.push(row);
+    }
     let nrows = rows.len();
     rows.iter()
         .enumerate()

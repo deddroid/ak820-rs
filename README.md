@@ -1,4 +1,4 @@
-# ak820 — AJAZZ AK820 Pro configurator for Linux and Windows
+# ak820 — AJAZZ AK820 Pro and AK820 configurator for Linux and Windows
 
 **English** · [Italiano](README.it.md)
 
@@ -12,19 +12,30 @@ Ready-made binaries, no Rust needed: grab the latest version from the
   `./install.sh --udev` inside the folder (installs into `~/.local` and adds the udev rule;
   see [Linux: permissions](#linux-permissions)).
 
-A single Rust program to configure the AJAZZ AK820 Pro keyboard without the official software:
+A single Rust program to configure the AJAZZ AK820 Pro and AK820 keyboards without the official software:
 
 - **Lighting**: all 20 effects, color, rainbow, brightness, speed, direction (moving effects have two directions)
 - **Per-key colors** (saved in the keyboard) and a live test animation
 - **Key remapping** on the normal and Fn layers: keys, shortcuts, media, mouse, Multi-Key
 - **Macros** stored in the keyboard (text, key combos, delays, clicks)
-- **Screen** 128×128: still images and animated GIFs
-- **Clock** of the screen synced with the computer
-- **System settings**: sleep, Fn mode, debounce, blocking Win / Alt+F4 / Alt+Tab
+- **Screen** 128×128: still images and animated GIFs (AK820 Pro)
+- **Clock** of the screen synced with the computer (AK820 Pro)
+- **System settings**: sleep, Fn mode, debounce, blocking Win / Alt+F4 / Alt+Tab; on the AK820 also
+  polling rate, NKRO and WASD/arrows swap
 - Works over the **USB cable** and, for lighting/keys/macros/clock/settings, also through the **2.4 GHz receiver**
 - **TOML profiles**: the whole configuration in one file, applied with one command
 
 Changes are saved in the keyboard itself: they work on any computer, with nothing running.
+
+### Supported keyboards
+
+| Model | USB ID | Connection | What works |
+|---|---|---|---|
+| **AK820 Pro** (TFT screen, wireless) | `0c45:8009`, `0c45:800a`; receiver `0c45:fdfd` | cable, 2.4 GHz receiver | everything above |
+| **AK820** (non-Pro, wired RGB, volume knob) | `320f:505b` | cable | lighting, per-key colors, live demo, remapping (normal layer), macros, debounce, Win lock, polling rate, NKRO, WASD/arrows swap, reading the configuration back |
+
+The model is detected automatically: the app draws its layout (the AK820 has an End key and the
+volume knob) and shows only the settings it supports.
 
 Available both as a **graphical app** (`ak820-gui`) and as a **command-line tool** (`ak820`);
 they share the same saved configuration.
@@ -147,6 +158,7 @@ ak820 screen cat.gif --fit crop              # image/GIF on the screen
 ak820 screen photo.jpg --zoom 2 --x 0.3 --y 0.4   # crop: zoom 2×, centered at 30% / 40%
 
 ak820 system --sleep 30m --fn-mode hold --response 2 --block-win off
+ak820 system --polling-rate 1000hz --nkro on --swap-wasd off   # AK820
 
 ak820 remap capslock=ctrl pgdn=end           # remap
 ak820 remap --fn left=prev right=next down=play
@@ -164,6 +176,7 @@ ak820 profile list                           # saved profiles (also: profile rm 
 ak820 apply examples/profile.toml            # apply a profile file
 ak820 export my-profile.toml                 # save the current configuration
 ak820 resend                                 # send everything again (e.g. after a reset)
+ak820 read [file.toml]                       # read the configuration from the keyboard (AK820)
 ak820 reset --yes                            # factory settings
 ak820 battery                                # battery (2.4G receiver only)
 ```
@@ -189,16 +202,19 @@ Macro steps: `text:…`, `tap:ctrl+c`, `down:KEY`, `up:KEY`, `delay:MS`,
 
 ### State
 
-The keyboard cannot be read back, so `ak820` remembers the last configuration sent in
+The AK820 Pro cannot be read back, so `ak820` remembers the last configuration sent in
 `~/.config/ak820/state.toml` (Windows: `%APPDATA%\ak820\state.toml`) and each command only
 changes its own part. Override the path with `AK820_STATE`. `AK820_DEBUG=1` prints the
-exchanged packets.
+exchanged packets. The AK820 can be read: `ak820 read` (or **Read from keyboard** in the GUI's
+Profiles tab, which also does it when the keyboard is connected) refreshes the state from it.
 
 ## Known limitations
 
 - Bluetooth: the keyboard exposes no configuration interface.
 - Per-key colors and screen: USB cable only.
-- The configuration cannot be read from the keyboard (firmware limitation).
+- AK820 Pro: the configuration cannot be read from the keyboard (firmware limitation).
+- AK820 (non-Pro): no screen, clock, battery or Fn-layer remaps; macros send key presses and delays
+  (mouse clicks in macros are not supported).
 - Firmwares exposing `0xFF67` instead of `0xFF13` use a different protocol, not supported.
 
 ## Library
@@ -214,7 +230,8 @@ anyone building another GUI or a daemon on top of it. The protocol is documented
 ## Credits
 
 Code written by [Claude](https://claude.com/claude-code) (Anthropic) together with
-[deddroid](https://github.com/deddroid), who tested it on the keyboard.
+[deddroid](https://github.com/deddroid), who tested it on the keyboard. AK820 (non-Pro) support by
+[koloved](https://github.com/koloved).
 
 Fonts: [Inter](https://rsms.me/inter/) and [Rajdhani](https://fonts.google.com/specimen/Rajdhani),
 embedded under the SIL Open Font License (see `assets/fonts/`).

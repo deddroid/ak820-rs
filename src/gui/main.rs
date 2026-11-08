@@ -1626,14 +1626,16 @@ impl App {
                 }
                 ui.end_row();
 
-                ui.label(t("Clock", "Orologio"));
-                let mut sync = self.settings.sync_clock_on_start;
-                toggle_label(ui, &mut sync, t("Sync the screen clock when the app starts", "Sincronizza l'orologio del display all'avvio"));
-                if sync != self.settings.sync_clock_on_start {
-                    self.settings.sync_clock_on_start = sync;
-                    self.save_settings();
+                if self.model.has_screen() {
+                    ui.label(t("Clock", "Orologio"));
+                    let mut sync = self.settings.sync_clock_on_start;
+                    toggle_label(ui, &mut sync, t("Sync the screen clock when the app starts", "Sincronizza l'orologio del display all'avvio"));
+                    if sync != self.settings.sync_clock_on_start {
+                        self.settings.sync_clock_on_start = sync;
+                        self.save_settings();
+                    }
+                    ui.end_row();
                 }
-                ui.end_row();
             });
         });
     }

@@ -1,4 +1,4 @@
-# Protocollo AK820 Pro (firmware originale)
+# Protocollo AJAZZ AK820 Pro e AK820 (firmware originale)
 
 [English](PROTOCOL.md) · **Italiano**
 
@@ -126,3 +126,48 @@ Il ricevitore risponde ripetendo i primi 3 byte. Nessun BEGIN/COMMIT/SAVE.
 | `20` batteria | risposta `[3]` = % (0 = sconosciuta) |
 
 Colori per tasto e display solo via cavo.
+
+## AK820 (non Pro, RGB via cavo): protocollo EVision
+
+La AJAZZ AK820 (non Pro, RGB via cavo) usa un controller USB HID EVision (`VID 0x320F, PID 0x505B`).
+
+### Dispositivi e interfacce
+
+| Collegamento | VID:PID | Interfacce |
+|---|---|---|
+| Cavo USB | `320F:505B` | Interfaccia 1, Usage Page `0xFF1C`, Usage `0x0092`: report HID da 65 byte (Report ID `0x04`) |
+
+### Formato dei pacchetti
+
+Tutti i comandi e i dati usano buffer HID da 65 byte con Report ID `0x04` al byte 0.
+I byte 1..2 contengono un checksum a 16 bit little-endian sui byte dati 3..64:
+```rust
+let sum: u16 = buf[3..64].iter().map(|&b| b as u16).sum();
+buf[1..3].copy_from_slice(&sum.to_le_bytes());
+```
+
+I trasferimenti di dati (configurazione, keymap, colori) sono divisi in blocchi di al massimo 56 byte
+(`0x38`), preceduti da un'intestazione di 7 byte:
+`[0x04, sum_lo, sum_hi, cmd, offset_lo, offset_hi, len, dati...]`.
+
+### Comandi
+
+| Cmd | Significato |
+|---|---|
+| `0x01` | BEGIN della transazione |
+| `0x02` | END della transazione (scrive le modifiche in flash) |
+| `0x05` / `0x06` | Lettura / scrittura della configurazione di sistema attiva (29 byte) |
+| `0x07` | Lettura della keymap di fabbrica (384 byte, 128 slot × 3 byte) |
+| `0x08` / `0x09` | Lettura / scrittura della keymap attiva (384 byte) |
+| `0x0A` / `0x0B` | Lettura / scrittura della tabella colori per tasto (384 byte, 128 slot × 3 byte RGB) |
+| `0x0D` / `0x0E` | Lettura / scrittura del blocco delle macro |
+| `0x11` / `0x12` | Animazione RGB live (`0x12` in modalità dinamica `0xFE`) |
+
+### Slot della keymap e codifica
+
+La matrice della AK820 occupa 128 slot (384 byte, 3 byte per slot):
+- Tasto normale / scorciatoia: `[0x20, mods, usage]` (mods: Ctrl 0x01, Shift 0x02, Alt 0x04, Win 0x08; RCtrl 0x10, RShift 0x20, RAlt 0x40, RWin 0x80)
+- Consumer / media / rotella del volume: `[0x30, usage_lo, usage_hi]` (es. rotella in senso orario: `[0x30, 0xE9, 0x00]`, antiorario: `[0x30, 0xEA, 0x00]`, pressione: `[0x30, 0xE2, 0x00]`)
+- Mouse: `[0x40, pulsante, rotella]`
+- Avvio macro: `[0x70, id_macro, modalità]`
+- Tasto Fn: `[0xA0, 0x01, 0x00]`

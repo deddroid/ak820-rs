@@ -1,4 +1,4 @@
-# ak820 — configuratore AJAZZ AK820 Pro per Linux e Windows
+# ak820 — configuratore AJAZZ AK820 Pro e AK820 per Linux e Windows
 
 [English](README.md) · **Italiano**
 
@@ -12,20 +12,31 @@ Programmi già pronti, senza installare Rust: scarica l'ultima versione dalla
   `./install.sh --udev` dentro la cartella (installa in `~/.local` e aggiunge la regola udev;
   vedi [Linux: permessi](#linux-permessi)).
 
-Un unico programma in Rust per configurare la AJAZZ AK820 Pro senza il software ufficiale:
+Un unico programma in Rust per configurare le AJAZZ AK820 Pro e AK820 senza il software ufficiale:
 
 - **Luci**: tutti i 20 effetti, colore, arcobaleno, luminosità, velocità, direzione (gli effetti che si muovono hanno due direzioni)
 - **Colori per tasto** (salvati nella tastiera) e animazione live di prova
 - **Rimappatura tasti** su layer normale e Fn: tasti, scorciatoie, media, mouse, Multi-Key
 - **Macro** salvate nella tastiera (testo, combinazioni, pause, clic)
-- **Display** 128×128: immagini e GIF animate
-- **Orologio** del display sincronizzato col PC
-- **Impostazioni**: sleep, modalità Fn, antirimbalzo, blocco Win / Alt+F4 / Alt+Tab
+- **Display** 128×128: immagini e GIF animate (AK820 Pro)
+- **Orologio** del display sincronizzato col PC (AK820 Pro)
+- **Impostazioni**: sleep, modalità Fn, antirimbalzo, blocco Win / Alt+F4 / Alt+Tab; sulla AK820 anche
+  frequenza di polling, NKRO e scambio WASD/frecce
 - Funziona via **cavo USB** e, per luci/tasti/macro/orologio/impostazioni, anche via **ricevitore 2.4 GHz**
 - **Profili TOML**: tutta la configurazione in un file, applicabile con un comando
 
 Le modifiche sono salvate nella tastiera stessa: valgono su qualsiasi computer, senza
 programmi in esecuzione.
+
+### Tastiere supportate
+
+| Modello | ID USB | Collegamento | Cosa funziona |
+|---|---|---|---|
+| **AK820 Pro** (display TFT, wireless) | `0c45:8009`, `0c45:800a`; ricevitore `0c45:fdfd` | cavo, ricevitore 2.4 GHz | tutto quello sopra |
+| **AK820** (non Pro, RGB via cavo, rotella del volume) | `320f:505b` | cavo | luci, colori per tasto, demo live, rimappatura (layer normale), macro, antirimbalzo, blocco Win, frequenza di polling, NKRO, scambio WASD/frecce, lettura della configurazione |
+
+Il modello viene riconosciuto da solo: l'app disegna il suo layout (la AK820 ha il tasto End e
+la rotella del volume) e mostra solo le impostazioni che supporta.
 
 Disponibile sia come **interfaccia grafica** (`ak820-gui`) sia da **riga di comando** (`ak820`):
 condividono la stessa configurazione salvata.
@@ -150,6 +161,7 @@ ak820 screen gatto.gif --fit crop            # immagine/GIF sul display
 ak820 screen foto.jpg --zoom 2 --x 0.3 --y 0.4    # ritaglio: zoom 2×, centrato al 30% / 40%
 
 ak820 system --sleep 30m --fn-mode hold --response 2 --block-win off
+ak820 system --polling-rate 1000hz --nkro on --swap-wasd off   # AK820
 
 ak820 remap capslock=ctrl pgdn=end           # rimappa
 ak820 remap --fn left=prev right=next down=play
@@ -167,6 +179,7 @@ ak820 profile list                           # profili salvati (anche: profile r
 ak820 apply examples/profile.toml            # applica un file profilo
 ak820 export mio-profilo.toml                # salva la configurazione corrente
 ak820 resend                                 # reinvia tutto (es. dopo un reset)
+ak820 read [file.toml]                       # legge la configurazione dalla tastiera (AK820)
 ak820 reset --yes                            # impostazioni di fabbrica
 ak820 battery                                # batteria (solo via ricevitore 2.4G)
 ```
@@ -192,16 +205,20 @@ Passi delle macro: `text:…`, `tap:ctrl+c`, `down:KEY`, `up:KEY`, `delay:MS`,
 
 ### Stato
 
-La tastiera non permette di rileggere la configurazione, quindi `ak820` ricorda l'ultima
+La AK820 Pro non permette di rileggere la configurazione, quindi `ak820` ricorda l'ultima
 inviata in `~/.config/ak820/state.toml` (Windows: `%APPDATA%\ak820\state.toml`) e ogni
 comando modifica solo la parte interessata. Si può cambiare il percorso con `AK820_STATE`.
-`AK820_DEBUG=1` stampa i pacchetti scambiati.
+`AK820_DEBUG=1` stampa i pacchetti scambiati. La AK820 invece si può leggere: `ak820 read` (o
+**Leggi dalla tastiera** nella scheda Profili della GUI, che lo fa anche quando la tastiera viene
+collegata) aggiorna lo stato a partire dalla tastiera.
 
 ## Limiti noti
 
 - Bluetooth: la tastiera non espone un'interfaccia di configurazione.
 - Colori per tasto e display: solo via cavo.
-- Nessuna lettura della configurazione dalla tastiera (limite del firmware).
+- AK820 Pro: nessuna lettura della configurazione dalla tastiera (limite del firmware).
+- AK820 (non Pro): niente display, orologio, batteria né rimappature sul layer Fn; le macro inviano
+  tasti e pause (i clic del mouse nelle macro non sono supportati).
 - Firmware che espongono `0xFF67` invece di `0xFF13` usano un altro protocollo, non supportato.
 
 ## Libreria
@@ -217,7 +234,8 @@ vuole costruirci sopra una GUI o un demone. Il protocollo è documentato in
 ## Crediti
 
 Codice scritto da [Claude](https://claude.com/claude-code) (Anthropic) insieme a
-[deddroid](https://github.com/deddroid), che lo ha testato sulla tastiera.
+[deddroid](https://github.com/deddroid), che lo ha testato sulla tastiera. Supporto alla AK820
+(non Pro) di [koloved](https://github.com/koloved).
 
 Font: [Inter](https://rsms.me/inter/) e [Rajdhani](https://fonts.google.com/specimen/Rajdhani),
 incorporati con licenza SIL Open Font License (vedi `assets/fonts/`).

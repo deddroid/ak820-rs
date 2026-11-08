@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Support for the AJAZZ AK820 (non-Pro, wired RGB, `320f:505b`): lighting, per-key colors,
+  live demo, remapping on the normal layer, macros, debounce, Win lock, polling rate, NKRO,
+  WASD/arrows swap. The model is detected automatically and the GUI shows its layout.
+  Contributed by koloved.
+- `ak820 read` and **Read from keyboard**: read the configuration back from the AK820.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

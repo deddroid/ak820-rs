@@ -13,7 +13,7 @@ mod worker;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -89,7 +89,7 @@ fn event_loop_hook() -> Option<eframe::EventLoopBuilderHook> {
     None
 }
 
-fn native_options() -> eframe::NativeOptions {
+fn native_options(visible: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
         event_loop_builder: event_loop_hook(),
         viewport: egui::ViewportBuilder::default()
@@ -97,7 +97,8 @@ fn native_options() -> eframe::NativeOptions {
             .with_app_id("ak820")
             .with_inner_size([1180.0, 780.0])
             .with_min_inner_size([900.0, 620.0])
-            .with_icon(app_icon()),
+            .with_icon(app_icon())
+            .with_visible(visible),
         ..Default::default()
     }
 }
@@ -133,6 +134,7 @@ fn main() -> eframe::Result {
     if !screenshots {
         let (tx, w) = (tray_tx.clone(), wake.clone());
         let primary = instance::acquire(move || {
+            tray::show_window();
             let _ = tx.send(TrayCmd::Open);
             w();
         });
@@ -141,40 +143,18 @@ fn main() -> eframe::Result {
         }
     }
 
+    let initial_visible = !start_in_tray || !settings.close_to_tray;
     let app = Arc::new(Mutex::new(App::new(settings, wake, tray_tx, tray_rx, start_in_tray)));
-    let mut show = !(start_in_tray && app.lock().unwrap().tray.is_some());
-    loop {
-        if show {
-            let (a, slot) = (app.clone(), ctx_slot.clone());
-            eframe::run_native(
-                "AK820 Pro",
-                native_options(),
-                Box::new(move |cc| {
-                    *slot.lock().unwrap() = Some(cc.egui_ctx.clone());
-                    a.lock().unwrap().attach(&cc.egui_ctx);
-                    Ok(Box::new(Window(a)))
-                }),
-            )?;
-            *ctx_slot.lock().unwrap() = None;
-            let a = app.lock().unwrap();
-            if a.quit || a.tray.is_none() {
-                break;
-            }
-            show = false;
-        } else {
-            // Window closed, icon in the tray: wait for the tray menu.
-            let cmd = app.lock().unwrap().tray_rx.recv_timeout(Duration::from_millis(500));
-            let mut a = app.lock().unwrap();
-            match cmd {
-                Ok(TrayCmd::Open) => show = true,
-                Ok(TrayCmd::Apply(name)) => a.apply_named(&name),
-                Ok(TrayCmd::Quit) | Err(RecvTimeoutError::Disconnected) => break,
-                Err(RecvTimeoutError::Timeout) => {}
-            }
-            a.handle_messages();
-        }
-    }
-    Ok(())
+    let (a, slot) = (app.clone(), ctx_slot.clone());
+    eframe::run_native(
+        "AK820 Pro",
+        native_options(initial_visible),
+        Box::new(move |cc| {
+            *slot.lock().unwrap() = Some(cc.egui_ctx.clone());
+            a.lock().unwrap().attach(&cc.egui_ctx);
+            Ok(Box::new(Window(a)))
+        }),
+    )
 }
 
 fn app_icon() -> egui::IconData {
@@ -2298,6 +2278,8 @@ impl eframe::App for App {
         while let Ok(cmd) = self.tray_rx.try_recv() {
             match cmd {
                 TrayCmd::Open => {
+                    tray::show_window();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
@@ -2307,6 +2289,16 @@ impl eframe::App for App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             }
+        }
+        if self.settings.close_to_tray
+            && self.tray.is_some()
+            && !self.quit
+            && ctx.input(|i| i.viewport().close_requested())
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            tray::hide_window();
+            #[cfg(not(windows))]
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
         self.handle_messages();
         self.image_drop(ctx);

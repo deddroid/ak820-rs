@@ -1,13 +1,33 @@
-//! Which theme the window starts with.
+//! Which theme the window uses: the one picked in the settings, or the system's.
 
 use eframe::egui::{Theme, ThemePreference};
+use serde::{Deserialize, Serialize};
 
-/// `AK820_GUI_THEME=light|dark`, else the system's preference.
-pub fn preference() -> ThemePreference {
-    match std::env::var("AK820_GUI_THEME").as_deref() {
-        Ok("light") => Theme::Light.into(),
-        Ok("dark") => Theme::Dark.into(),
-        _ => system().map_or(ThemePreference::System, Into::into),
+/// The theme picked in System → Application.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Choice {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Choice {
+    pub const ALL: [Choice; 3] = [Choice::System, Choice::Light, Choice::Dark];
+}
+
+/// `AK820_GUI_THEME=light|dark` for a single run, else `choice`; `System` asks the system.
+pub fn preference(choice: Choice) -> ThemePreference {
+    let choice = match std::env::var("AK820_GUI_THEME").as_deref() {
+        Ok("light") => Choice::Light,
+        Ok("dark") => Choice::Dark,
+        _ => choice,
+    };
+    match choice {
+        Choice::Light => Theme::Light.into(),
+        Choice::Dark => Theme::Dark.into(),
+        Choice::System => system().map_or(ThemePreference::System, Into::into),
     }
 }
 

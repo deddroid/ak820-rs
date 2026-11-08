@@ -117,8 +117,7 @@ ritaglia trascina l'immagine per scegliere la parte visibile e usa la rotella pe
 trascina un'immagine o una GIF nella finestra), **Sistema** (impostazioni dell'app, orologio,
 sospensione, Fn, antirimbalzo, batteria) e **Profili** (profili salvati, importa/esporta/reinvia,
 ripristino di fabbrica). La barra in basso mostra lo stato del collegamento e il registro delle
-operazioni. La finestra segue il tema chiaro o scuro del sistema (`AK820_GUI_THEME=light|dark`
-ne forza uno).
+operazioni.
 
 I **profili salvati** contengono tutta la configurazione: luci o colori per tasto, rimappature,
 macro, immagine del display (copiata accanto al profilo) e impostazioni. **Applica** porta la
@@ -129,6 +128,8 @@ tastiera a quel profilo con un clic, anche dal menu della tray.
 - **Lingua**: italiano o inglese. Di default segue la lingua del sistema
   (`LANG`/`LC_ALL`/`LC_MESSAGES` su Linux, la lingua dell'utente su Windows);
   `AK820_GUI_LANG=en|it` la forza per un singolo avvio.
+- **Tema**: come il sistema (di default), chiaro o scuro. `AK820_GUI_THEME=light|dark` ne forza
+  uno per un singolo avvio.
 - **Avvia all'accensione del PC**: all'accesso l'app parte ridotta nella tray (autostart XDG su
   Linux, chiave `Run` del registro su Windows).
 - **Riduci nella tray** alla chiusura della finestra: un clic sull'icona la riapre, il suo menu

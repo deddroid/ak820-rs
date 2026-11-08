@@ -114,8 +114,7 @@ keyboard, right-click to clear), **Keys** (click a key and choose what it does, 
 layer), **Macros** (sequence editor), **Screen** (animated preview; in crop mode drag the image
 to choose the visible part and scroll to zoom; drop an image or GIF), **System** (app settings,
 clock, sleep, Fn, debounce, battery) and **Profiles** (saved profiles, import/export/resend,
-factory reset). The bottom bar shows the connection status and the operation log. The window
-follows the system's light or dark theme (`AK820_GUI_THEME=light|dark` forces one).
+factory reset). The bottom bar shows the connection status and the operation log.
 
 **Saved profiles** hold the whole configuration: lighting or per-key colors, remaps, macros,
 screen image (copied next to the profile) and system settings. **Apply** switches the keyboard
@@ -126,6 +125,8 @@ to a profile in one click, also from the tray menu.
 - **Language**: English or Italian. By default it follows the system language
   (`LANG`/`LC_ALL`/`LC_MESSAGES` on Linux, the user locale on Windows);
   `AK820_GUI_LANG=en|it` forces one for a single run.
+- **Theme**: same as the system (default), light or dark. `AK820_GUI_THEME=light|dark` forces
+  one for a single run.
 - **Start with the computer**: starts the app in the tray at login (XDG autostart on Linux,
   the `Run` registry key on Windows).
 - **Keep running in the tray** when the window is closed: click the icon to reopen it, or use

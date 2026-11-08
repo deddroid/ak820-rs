@@ -624,7 +624,7 @@ impl App {
         if std::env::var_os("AK820_DEBUG").is_some() {
             eprintln!("window opened");
         }
-        setup_style(ctx);
+        setup_style(ctx, theme::preference(self.settings.theme));
         self.textures = None;
     }
 
@@ -811,8 +811,14 @@ impl App {
             let modes: Vec<Mode> = Mode::ALL.iter().copied().filter(|m| *m != Mode::Custom).collect();
             egui::Grid::new("modes").spacing([8.0, 8.0]).show(ui, |ui| {
                 for (i, m) in modes.iter().enumerate() {
+                    // Not `Button::selected`: egui draws the selected frame with square corners.
                     let selected = self.light.mode == *m;
-                    let b = Button::new(mode_label(*m)).selected(selected).min_size(Vec2::new(130.0, 32.0));
+                    let text = RichText::new(mode_label(*m));
+                    let mut b = Button::new(if selected { text.color(Color32::WHITE) } else { text })
+                        .min_size(Vec2::new(130.0, 32.0));
+                    if selected {
+                        b = b.fill(accent(ui));
+                    }
                     if ui.add(b).clicked() {
                         self.light.mode = *m;
                     }
@@ -1598,6 +1604,20 @@ impl App {
                 }
                 ui.end_row();
 
+                ui.label(t("Theme", "Tema"));
+                let mut choice = self.settings.theme;
+                ComboBox::from_id_salt("theme").selected_text(theme_label(choice)).width(180.0).show_ui(ui, |ui| {
+                    for c in theme::Choice::ALL {
+                        ui.selectable_value(&mut choice, c, theme_label(c));
+                    }
+                });
+                if choice != self.settings.theme {
+                    self.settings.theme = choice;
+                    self.save_settings();
+                    ui.ctx().set_theme(theme::preference(choice));
+                }
+                ui.end_row();
+
                 ui.label(t("Startup", "Avvio"));
                 let mut autostart = self.autostart;
                 toggle_label(ui, &mut autostart, t("Start with the computer (in the tray)", "Avvia all'accensione del PC (nella tray)"));
@@ -2349,9 +2369,9 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-fn setup_style(ctx: &egui::Context) {
+fn setup_style(ctx: &egui::Context, theme: egui::ThemePreference) {
     setup_fonts(ctx);
-    ctx.set_theme(theme::preference());
+    ctx.set_theme(theme);
     ctx.set_visuals_of(Theme::Light, visuals(&LIGHT, egui::Visuals::light()));
     ctx.set_visuals_of(Theme::Dark, visuals(&DARK, egui::Visuals::dark()));
     ctx.all_styles_mut(|s| {
@@ -2492,6 +2512,14 @@ fn card<R>(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
             add(ui)
         })
         .inner
+}
+
+fn theme_label(choice: theme::Choice) -> &'static str {
+    match choice {
+        theme::Choice::System => t("Same as the system", "Come il sistema"),
+        theme::Choice::Light => t("Light", "Chiaro"),
+        theme::Choice::Dark => t("Dark", "Scuro"),
+    }
 }
 
 fn color_button(ui: &mut Ui, c: &mut Rgb) {

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Theme** in System → Application: same as the system, light or dark. The choice is saved.
+
+### Fixed
+- The selected lighting effect had square corners instead of rounded ones like every other button.
+
 ## [0.3.0] - 2026-11-08
 
 ### Added

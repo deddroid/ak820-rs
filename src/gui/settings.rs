@@ -6,11 +6,14 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::Lang;
+use crate::theme;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub lang: Option<Lang>,
+    /// Light, dark or the system's theme.
+    pub theme: theme::Choice,
     /// Closing the window keeps the app running in the system tray.
     pub close_to_tray: bool,
     /// Sync the screen clock when the app starts.
@@ -50,12 +53,14 @@ mod tests {
 
     #[test]
     fn round_trip_and_old_files() {
-        let s = Settings { lang: Some(Lang::It), close_to_tray: true, ..Settings::default() };
+        let s =
+            Settings { lang: Some(Lang::It), theme: theme::Choice::Dark, close_to_tray: true, ..Settings::default() };
         let text = toml::to_string(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         // gui.toml written by older versions only had the language
         let old: Settings = toml::from_str(r#"lang = "en""#).unwrap();
         assert_eq!(old.lang, Some(Lang::En));
         assert!(!old.close_to_tray);
+        assert_eq!(old.theme, theme::Choice::System);
     }
 }

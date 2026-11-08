@@ -11,6 +11,7 @@ mod settings;
 mod shortcuts;
 mod theme;
 mod tray;
+mod wayland_drop;
 mod worker;
 
 use std::collections::BTreeMap;
@@ -73,27 +74,8 @@ const KEYCAP: Color32 = Color32::from_rgb(48, 48, 60);
 /// Font family of headings and the app name (Rajdhani, with the body fonts as fallback).
 const TITLE_FONT: &str = "titles";
 
-/// winit has no file drag & drop on Wayland, so on Linux the window goes through
-/// XWayland when it is available. `AK820_WAYLAND=1` keeps native Wayland.
-#[cfg(target_os = "linux")]
-fn event_loop_hook() -> Option<eframe::EventLoopBuilderHook> {
-    let x11 = std::env::var_os("DISPLAY").is_some() && std::env::var_os("AK820_WAYLAND").is_none();
-    x11.then(|| -> eframe::EventLoopBuilderHook {
-        Box::new(|builder| {
-            use winit::platform::x11::EventLoopBuilderExtX11;
-            builder.with_x11();
-        })
-    })
-}
-
-#[cfg(not(target_os = "linux"))]
-fn event_loop_hook() -> Option<eframe::EventLoopBuilderHook> {
-    None
-}
-
 fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
-        event_loop_builder: event_loop_hook(),
         viewport: egui::ViewportBuilder::default()
             .with_title("AK820 Pro")
             .with_app_id("ak820")
@@ -153,7 +135,12 @@ fn main() -> eframe::Result {
                 native_options(),
                 Box::new(move |cc| {
                     *slot.lock().unwrap() = Some(cc.egui_ctx.clone());
-                    a.lock().unwrap().attach(&cc.egui_ctx);
+                    let mut app = a.lock().unwrap();
+                    app.attach(&cc.egui_ctx);
+                    if app.drop_target.is_none() {
+                        app.drop_target = wayland_drop::DropTarget::new(cc, app.wake.clone());
+                    }
+                    drop(app);
                     Ok(Box::new(Window(a)))
                 }),
             )?;
@@ -479,6 +466,8 @@ struct App {
     model: Model,
     autostart: bool,
     tray: Option<tray::Handle>,
+    /// File drops on native Wayland; kept for the whole program (see `DropTarget::new`).
+    drop_target: Option<wayland_drop::DropTarget>,
     tray_tx: Sender<TrayCmd>,
     tray_rx: Receiver<TrayCmd>,
     wake: Wake,
@@ -552,6 +541,7 @@ impl App {
             tab: Tab::Lighting,
             autostart: autostart::is_enabled(),
             tray: None,
+            drop_target: None,
             tray_tx,
             tray_rx,
             wake,
@@ -2073,7 +2063,10 @@ impl App {
 
     /// Images dropped on the window (any tab), or a copied file pasted on the Screen tab.
     fn image_drop(&mut self, ctx: &egui::Context) {
-        let dropped = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone()));
+        let wayland = self.drop_target.as_ref().map(wayland_drop::DropTarget::take).unwrap_or_default();
+        let dropped = ctx
+            .input(|i| i.raw.dropped_files.iter().find_map(|f| f.path.clone()))
+            .or_else(|| wayland.dropped.iter().find_map(|l| path_from_text(l)));
         let pasted = if self.tab == Tab::Screen && ctx.memory(|m| m.focused().is_none()) {
             ctx.input(|i| {
                 i.events.iter().find_map(|e| match e {
@@ -2088,7 +2081,7 @@ impl App {
             self.tab = Tab::Screen;
             self.load_screen(path, Crop::default());
         }
-        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+        if wayland.hovering || ctx.input(|i| !i.raw.hovered_files.is_empty()) {
             let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop")));
             let rect = ctx.screen_rect();
             painter.rect_filled(rect, CornerRadius::ZERO, Color32::from_black_alpha(170));

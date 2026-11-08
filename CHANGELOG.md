@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Linux: the window no longer turns black or lags behind while it is resized. It now runs on
+  native Wayland instead of XWayland, and dropping an image on it still works there.
+
 ## [0.5.0] - 2026-11-08
 
 ### Added

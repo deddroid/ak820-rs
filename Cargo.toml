@@ -28,7 +28,9 @@ gui = [
     "dep:eframe",
     "dep:rfd",
     "dep:ksni",
-    "dep:winit",
+    "dep:smithay-client-toolkit",
+    "dep:wayland-backend",
+    "dep:raw-window-handle",
     "dep:ashpd",
     "dep:pollster",
     "dep:tray-icon",
@@ -53,8 +55,11 @@ ksni = { version = "=0.3.1", features = ["blocking"], optional = true }
 # System light/dark preference through the XDG settings portal (rfd already pulls both in).
 ashpd = { version = "0.11", default-features = false, features = ["async-std"], optional = true }
 pollster = { version = "0.4", optional = true }
-# Same winit as eframe; only used to pick the X11 backend (file drag & drop).
-winit = { version = "0.30", default-features = false, features = ["x11"], optional = true }
+# File drag & drop on native Wayland, which winit lacks (the versions egui already uses for
+# the clipboard).
+smithay-client-toolkit = { version = "0.20", default-features = false, features = ["calloop"], optional = true }
+wayland-backend = { version = "0.3", features = ["client_system"], optional = true }
+raw-window-handle = { version = "0.6", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 tray-icon = { version = "=0.21.0", optional = true }

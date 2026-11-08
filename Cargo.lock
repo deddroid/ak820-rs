@@ -143,13 +143,15 @@ dependencies = [
  "image",
  "ksni",
  "pollster",
+ "raw-window-handle",
  "rfd",
  "serde",
+ "smithay-client-toolkit 0.20.0",
  "thiserror 1.0.69",
  "toml 0.8.2",
  "tray-icon",
+ "wayland-backend",
  "windows-sys 0.59.0",
- "winit",
  "winresource",
 ]
 
